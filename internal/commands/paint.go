@@ -1,8 +1,10 @@
 package commands
 
 import (
+	"Koukyo_discord_bot/internal/notifications"
 	"Koukyo_discord_bot/internal/utils" // 追加
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"

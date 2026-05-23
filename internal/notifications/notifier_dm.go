@@ -93,7 +93,7 @@ func (n *Notifier) checkAndNotifyDMUser(userID string, _ *monitor.MonitorData, d
 	state.lastNotify = now
 	state.mu.Unlock()
 
-	n.enqueueHigh(func() {
+	n.EnqueueHigh(func() {
 		n.sendDMNotification(userID, msg)
 	})
 }
