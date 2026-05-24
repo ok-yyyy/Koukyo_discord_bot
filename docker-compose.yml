@@ -1,10 +1,27 @@
 services:
+
+  monitor:
+    build:
+      context: ./monitor
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      - REF_IMAGE_PATH=/app/template/1818-806-989-358.png
+      - WEIGHT_MASK_PATH=/app/template/1818-806-989-358_kiku_only.webp
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./monitor/data:/app/monitor/data
+      - ./data/template_img:/app/template:ro
+
   discord-bot:
     build:
       context: .
       dockerfile: Dockerfile
     env_file:
       - .env
+    depends_on:
+      - monitor
     restart: unless-stopped
     environment:
       - POWER_SAVE_MODE=${POWER_SAVE_MODE:-0}

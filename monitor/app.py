@@ -17,14 +17,12 @@ Environment variables (optional):
 
 import os
 import io
-import base64
 import asyncio
 import time
 import logging
 import struct # Added for binary packing
 import random
 import json
-import math
 from pathlib import Path
 from typing import Tuple, List, Dict, Any, Optional, Set, Iterable
 from concurrent.futures import ProcessPoolExecutor
@@ -34,10 +32,10 @@ from collections import deque, defaultdict
 import requests
 import urllib.request
 import urllib.error
-from PIL import Image, ImageChops, ImageColor
+from PIL import Image
 import numpy as np
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Response, HTTPException, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.websockets import WebSocketState
@@ -45,7 +43,7 @@ from starlette.websockets import WebSocketState
 from analytics.event_logger import VandalEventLogger
 
 # ------------------ Logging Config ------------------
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # ------------------ Config ------------------
 
@@ -1145,9 +1143,6 @@ class AppState:
 
 app_state = AppState()
 
-# SAMURAI monitor state
-samurai_app_state = AppState()
-
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
@@ -1177,63 +1172,6 @@ class ConnectionManager:
                 self.disconnect(connection)
 
 manager = ConnectionManager()
-samurai_manager = ConnectionManager()
-minimap_manager = ConnectionManager()
-minimap_state = {"latest_image": None}
-minimap_history = []  # List of {timestamp, filename, avg_diff}
-MINIMAP_ARCHIVE_DIR = Path("/opt/wplace/minimap_archive")
-MINIMAP_HISTORY_FILE = MINIMAP_ARCHIVE_DIR / "history.json"
-MINIMAP_SAVE_INTERVAL = 300  # 5 minutes in seconds
-
-# ------------------ Minimap History Persistence ------------------
-
-def load_minimap_history():
-    """Load minimap history from JSON file, or reconstruct from existing PNG files"""
-    global minimap_history
-    try:
-        if MINIMAP_HISTORY_FILE.exists():
-            with open(MINIMAP_HISTORY_FILE, 'r') as f:
-                minimap_history = json.load(f)
-            logging.info(f"[MINIMAP] Loaded {len(minimap_history)} history entries from file")
-        else:
-            # Try to reconstruct history from existing PNG files
-            minimap_history = []
-            if MINIMAP_ARCHIVE_DIR.exists():
-                png_files = sorted(MINIMAP_ARCHIVE_DIR.glob("minimap_*.png"))
-                for png_file in png_files:
-                    try:
-                        # Extract timestamp from filename: minimap_1759592467.png
-                        timestamp_str = png_file.stem.split('_')[1]
-                        timestamp = int(timestamp_str)
-                        minimap_history.append({
-                            "timestamp": timestamp,
-                            "filename": png_file.name,
-                            "avg_diff": 0.0  # Unknown, set to 0
-                        })
-                    except (IndexError, ValueError) as e:
-                        logging.warning(f"[MINIMAP] Skipping invalid filename: {png_file.name}")
-                        continue
-
-                if minimap_history:
-                    logging.info(f"[MINIMAP] Reconstructed {len(minimap_history)} history entries from PNG files")
-                    # Save reconstructed history
-                    save_minimap_history()
-                else:
-                    logging.info("[MINIMAP] No history file found, starting fresh")
-            else:
-                logging.info("[MINIMAP] No history file found, starting fresh")
-    except Exception as e:
-        logging.error(f"[MINIMAP] Failed to load history: {e}")
-        minimap_history = []
-
-def save_minimap_history():
-    """Save minimap history to JSON file"""
-    try:
-        with open(MINIMAP_HISTORY_FILE, 'w') as f:
-            json.dump(minimap_history, f, indent=2)
-        logging.info(f"[MINIMAP] Saved {len(minimap_history)} history entries to file")
-    except Exception as e:
-        logging.error(f"[MINIMAP] Failed to save history: {e}")
 
 # ------------------ Admin Helpers ------------------
 
@@ -1355,10 +1293,10 @@ async def fetch_and_process_data_loop(executor: ProcessPoolExecutor):
             logging.error(f"[PROCESS] Error in async processing loop: {e}", exc_info=True)
             await asyncio.sleep(10)
         logging.info("[PROCESS] Loop end")
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(5.0)
 
 async def broadcast_loop():
-    interval = 1.0 # Updated to 1.0 seconds (maximum speed)
+    interval = 5.0 # Updated to 1.0 seconds (maximum speed)
     logging.info(f"[BROADCAST] Starting broadcast loop with interval: {interval:.2f}s")
     while True:
         logging.info(f"[BROADCAST] Loop start, sleeping for {interval:.2f}s")
@@ -1385,315 +1323,7 @@ async def broadcast_loop():
 # ------------------ FastAPI App ------------------
 
 executor = ProcessPoolExecutor(max_workers=1)
-samurai_executor = ProcessPoolExecutor(max_workers=1)
 app = FastAPI()
-
-async def samurai_fetch_and_process_loop_generic(name: str, samurai_data: dict, executor_pool: ProcessPoolExecutor, delay: float = 0):
-    """Generic SAMURAI monitor processing loop for any location"""
-    if samurai_data is None:
-        logging.critical(f"[{name}] Cannot start processing loop: reference image not loaded")
-        return
-
-    # Initial delay to stagger requests
-    if delay > 0:
-        await asyncio.sleep(delay)
-
-    ref_img = samurai_data["ref_img"]
-    ref_pixel = samurai_data["ref_pixel"]
-    app_state_obj = samurai_data["app_state"]
-    monitor_w = samurai_data["monitor_w"]
-    monitor_h = samurai_data["monitor_h"]
-
-    loop = asyncio.get_running_loop()
-    tile_x, tile_y, x_in_tile, y_in_tile = ref_pixel
-    last_successful_data = None
-    INTERVAL = 15  # 15 seconds interval
-
-    while True:
-        try:
-            logging.info(f"[{name}-PROCESS] Loop start")
-
-            global_x = tile_x * TILE_SIZE + x_in_tile
-            global_y = tile_y * TILE_SIZE + y_in_tile
-            start_tx = global_x // TILE_SIZE
-            start_ty = global_y // TILE_SIZE
-            end_tx = (global_x + monitor_w - 1) // TILE_SIZE
-            end_ty = (global_y + monitor_h - 1) // TILE_SIZE
-
-            tiles = await fetch_tiles(start_tx, end_tx, start_ty, end_ty)
-
-            if tiles:
-                live_img = await loop.run_in_executor(
-                    executor_pool, stitch_and_crop_tiles, tiles, start_tx, start_ty, end_tx, end_ty,
-                    global_x, global_y, monitor_w, monitor_h, TILE_SIZE
-                )
-
-                if live_img:
-                    processed_data = await loop.run_in_executor(
-                        executor_pool, process_live_image, ref_img, live_img, 150, 40, None
-                    )
-
-                    if processed_data:
-                        async with app_state_obj.lock:
-                            app_state_obj.latest_data = {
-                                "metadata": processed_data["metadata"],
-                                "live_image_msg": processed_data["live_image_msg"],
-                                "diff_image_msg": processed_data["diff_image_msg"],
-                                "timestamp": time.time(),
-                            }
-
-                        last_successful_data = processed_data
-                        diff_pct = processed_data["diff_pct"]
-                        logging.info(f"[{name}-PROCESS] New data ready. Diff: {diff_pct:.2f}%")
-                else:
-                    if last_successful_data:
-                        logging.warning(f"[{name}-PROCESS] Failed to stitch tiles. Using previous data.")
-                        async with app_state_obj.lock:
-                            app_state_obj.latest_data = {
-                                "metadata": last_successful_data["metadata"],
-                                "live_image_msg": last_successful_data["live_image_msg"],
-                                "diff_image_msg": last_successful_data["diff_image_msg"],
-                                "timestamp": time.time(),
-                            }
-            else:
-                if last_successful_data:
-                    logging.warning(f"[{name}-PROCESS] Failed to fetch tiles. Using previous data.")
-                    async with app_state_obj.lock:
-                        app_state_obj.latest_data = {
-                            "metadata": last_successful_data["metadata"],
-                            "live_image_msg": last_successful_data["live_image_msg"],
-                            "diff_image_msg": last_successful_data["diff_image_msg"],
-                            "timestamp": time.time(),
-                        }
-                else:
-                    logging.warning(f"[{name}-PROCESS] Failed to fetch any tiles and no previous data.")
-
-        except Exception as e:
-            logging.error(f"[{name}-PROCESS] Error in async processing loop: {e}", exc_info=True)
-
-        # Wait for next interval
-        await asyncio.sleep(INTERVAL)
-
-async def samurai_fetch_and_process_loop():
-    """SAMURAI monitor processing loop"""
-    if SAMURAI_REF_IMG is None:
-        logging.critical("Cannot start SAMURAI processing loop: reference image not loaded")
-        return
-
-    loop = asyncio.get_running_loop()
-    tile_x, tile_y, x_in_tile, y_in_tile = SAMURAI_REF_PIXEL
-    last_successful_data = None  # Cache for previous successful data
-
-    while True:
-        try:
-            logging.info("[SAMURAI-PROCESS] Loop start")
-
-            global_x = tile_x * TILE_SIZE + x_in_tile
-            global_y = tile_y * TILE_SIZE + y_in_tile
-            start_tx = global_x // TILE_SIZE
-            start_ty = global_y // TILE_SIZE
-            end_tx = (global_x + SAMURAI_MONITOR_W - 1) // TILE_SIZE
-            end_ty = (global_y + SAMURAI_MONITOR_H - 1) // TILE_SIZE
-
-            tiles = await fetch_tiles(start_tx, end_tx, start_ty, end_ty)
-
-            if tiles:
-                live_img = await loop.run_in_executor(
-                    samurai_executor, stitch_and_crop_tiles, tiles, start_tx, start_ty, end_tx, end_ty,
-                    global_x, global_y, SAMURAI_MONITOR_W, SAMURAI_MONITOR_H, TILE_SIZE
-                )
-
-                if live_img:
-                    # Use lenient thresholds for SAMURAI (150 for RGB, 40 for alpha)
-                    processed_data = await loop.run_in_executor(
-                        samurai_executor, process_live_image, SAMURAI_REF_IMG, live_img, 150, 40, None
-                    )
-
-                    if processed_data:
-                        async with samurai_app_state.lock:
-                            samurai_app_state.latest_data = {
-                                "metadata": processed_data["metadata"],
-                                "live_image_msg": processed_data["live_image_msg"],
-                                "diff_image_msg": processed_data["diff_image_msg"],
-                                "timestamp": time.time(),
-                            }
-
-                        last_successful_data = processed_data  # Cache successful data
-                        diff_pct = processed_data["diff_pct"]
-                        logging.info(f"[SAMURAI-PROCESS] New data ready. Diff: {diff_pct:.2f}%")
-                else:
-                    # Failed to stitch tiles, use cached data if available
-                    if last_successful_data:
-                        logging.warning("[SAMURAI-PROCESS] Failed to stitch tiles. Using previous data.")
-                        async with samurai_app_state.lock:
-                            samurai_app_state.latest_data = {
-                                "metadata": last_successful_data["metadata"],
-                                "live_image_msg": last_successful_data["live_image_msg"],
-                                "diff_image_msg": last_successful_data["diff_image_msg"],
-                                "timestamp": time.time(),
-                            }
-            else:
-                # Failed to fetch tiles, use cached data if available
-                if last_successful_data:
-                    logging.warning("[SAMURAI-PROCESS] Failed to fetch tiles. Using previous data.")
-                    async with samurai_app_state.lock:
-                        samurai_app_state.latest_data = {
-                            "metadata": last_successful_data["metadata"],
-                            "live_image_msg": last_successful_data["live_image_msg"],
-                            "diff_image_msg": last_successful_data["diff_image_msg"],
-                            "timestamp": time.time(),
-                        }
-                else:
-                    logging.warning("[SAMURAI-PROCESS] Failed to fetch any tiles and no previous data. Retrying in 5s.")
-                    await asyncio.sleep(5)
-
-        except Exception as e:
-            logging.error(f"[SAMURAI-PROCESS] Error in async processing loop: {e}", exc_info=True)
-            await asyncio.sleep(10)
-
-async def samurai_broadcast_loop_generic(name: str, samurai_data: dict, delay: float = 0):
-    """Generic SAMURAI broadcast loop"""
-    # Initial delay to match processing loop
-    if delay > 0:
-        await asyncio.sleep(delay)
-
-    interval = 15.0
-    app_state_obj = samurai_data["app_state"]
-    manager_obj = samurai_data["manager"]
-
-    logging.info(f"[{name}-BROADCAST] Starting broadcast loop with interval: {interval:.2f}s")
-    while True:
-        await asyncio.sleep(interval)
-
-        current_data = None
-        async with app_state_obj.lock:
-            current_data = app_state_obj.latest_data.copy()
-
-        if manager_obj.active_connections and current_data and current_data["metadata"]:
-            logging.info(f"[{name}-BROADCAST] Broadcasting to {len(manager_obj.active_connections)} clients.")
-            await manager_obj.broadcast_json(current_data["metadata"])
-            await manager_obj.broadcast_bytes(current_data["live_image_msg"])
-            await manager_obj.broadcast_bytes(current_data["diff_image_msg"])
-
-async def minimap_fetch_loop():
-    """Fetch and stitch minimap tiles every 60 seconds"""
-    MAP_MIN_TX, MAP_MAX_TX = 860, 862  # 3 tiles wide
-    MAP_MIN_TY, MAP_MAX_TY = 1201, 1203  # 3 tiles high
-
-    logging.info("[MINIMAP] Starting minimap fetch loop")
-    last_save_time = -MINIMAP_SAVE_INTERVAL  # Initialize to trigger save on first run
-
-    while True:
-        try:
-            # Collect all tiles needed (3x3 = 9 tiles)
-            all_tiles_needed = set()
-            for tx in range(MAP_MIN_TX, MAP_MAX_TX + 1):
-                for ty in range(MAP_MIN_TY, MAP_MAX_TY + 1):
-                    all_tiles_needed.add((tx, ty))
-
-            logging.info(f"[MINIMAP] Need {len(all_tiles_needed)} tiles")
-
-            # Fetch tiles slowly over 60 seconds (60/9 ≈ 6.67 seconds per tile)
-            tile_interval = 60.0 / len(all_tiles_needed)
-            tiles = {}
-
-            for i, (tx, ty) in enumerate(sorted(all_tiles_needed)):
-                url = f"{TILES_BASE}/{tx}/{ty}.png?t={random.randint(1000, 9999)}"
-                img = await asyncio.to_thread(get_image_from_url, url)
-                if img:
-                    tiles[(tx, ty)] = img
-                    logging.info(f"[MINIMAP] Fetched tile ({tx},{ty}) - {i+1}/{len(all_tiles_needed)}")
-
-                # Wait before fetching next tile (except for the last one)
-                if i < len(all_tiles_needed) - 1:
-                    await asyncio.sleep(tile_interval)
-
-            # Stitch all tiles together
-            if tiles:
-                map_width = (MAP_MAX_TX - MAP_MIN_TX + 1) * TILE_SIZE
-                map_height = (MAP_MAX_TY - MAP_MIN_TY + 1) * TILE_SIZE
-                combined = Image.new("RGBA", (map_width, map_height))
-
-                for (tx, ty), img in tiles.items():
-                    px = (tx - MAP_MIN_TX) * TILE_SIZE
-                    py = (ty - MAP_MIN_TY) * TILE_SIZE
-                    combined.paste(img, (px, py))
-
-                # Create message
-                minimap_msg = create_image_message("minimap", img_to_bytes(combined))
-                minimap_state["latest_image"] = minimap_msg
-
-                # Save to disk every 5 minutes
-                current_time = time.time()
-                if current_time - last_save_time >= MINIMAP_SAVE_INTERVAL:
-                    timestamp = int(current_time)
-                    filename = f"minimap_{timestamp}.png"
-                    filepath = MINIMAP_ARCHIVE_DIR / filename
-                    combined.save(filepath, "PNG")
-
-                    # Calculate average diff from all SAMURAI monitors
-                    total_diff = 0
-                    monitor_count = 0
-                    for name, samurai_data in SAMURAI_DATA.items():
-                        if samurai_data:
-                            async with samurai_data["app_state"].lock:
-                                data = samurai_data["app_state"].latest_data
-                                if data and data.get("metadata"):
-                                    total_diff += data["metadata"].get("diff_percentage", 0)
-                                    monitor_count += 1
-
-                    avg_diff = total_diff / monitor_count if monitor_count > 0 else 0
-
-                    minimap_history.append({
-                        "timestamp": timestamp,
-                        "filename": filename,
-                        "avg_diff": round(avg_diff, 2)
-                    })
-
-                    # ARCHIVE MODE: Auto-deletion disabled to preserve all history
-                    # Keep only last 1200 entries (4 days at 5 min intervals = 1152, rounded up)
-                    # if len(minimap_history) > 1200:
-                    #     # Delete old file
-                    #     old_entry = minimap_history.pop(0)
-                    #     old_path = MINIMAP_ARCHIVE_DIR / old_entry["filename"]
-                    #     if old_path.exists():
-                    #         old_path.unlink()
-
-                    # Save history to file
-                    save_minimap_history()
-
-                    last_save_time = current_time
-                    logging.info(f"[MINIMAP] Saved to {filename}, avg_diff: {avg_diff:.2f}%, history: {len(minimap_history)} entries")
-
-                # Broadcast to connected clients
-                if minimap_manager.active_connections:
-                    logging.info(f"[MINIMAP] Broadcasting to {len(minimap_manager.active_connections)} clients")
-                    await minimap_manager.broadcast_bytes(minimap_msg)
-
-                logging.info(f"[MINIMAP] Created map: {map_width}x{map_height}px with {len(tiles)} tiles")
-
-        except Exception as e:
-            logging.error(f"[MINIMAP] Error in fetch loop: {e}", exc_info=True)
-
-        # After completing one cycle, wait a bit before starting next cycle
-        await asyncio.sleep(5)
-
-async def samurai_broadcast_loop():
-    """SAMURAI monitor broadcast loop"""
-    interval = 10.0
-    logging.info(f"[SAMURAI-BROADCAST] Starting broadcast loop with interval: {interval:.2f}s")
-    while True:
-        await asyncio.sleep(interval)
-
-        current_data = None
-        async with samurai_app_state.lock:
-            current_data = samurai_app_state.latest_data.copy()
-
-        if samurai_manager.active_connections and current_data and current_data["metadata"]:
-            logging.info(f"[SAMURAI-BROADCAST] Broadcasting to {len(samurai_manager.active_connections)} clients.")
-            await samurai_manager.broadcast_json(current_data["metadata"])
-            await samurai_manager.broadcast_bytes(current_data["live_image_msg"])
-            await samurai_manager.broadcast_bytes(current_data["diff_image_msg"])
 
 
 
@@ -1703,41 +1333,20 @@ async def samurai_broadcast_loop():
 async def startup_event():
     logging.info("Starting background tasks...")
 
-    # Load minimap history from disk
-    load_minimap_history()
-
-    # ARCHIVE MODE: JFA event ended - SAMURAI monitoring disabled
     # BUT: Kiku (Imperial Palace) monitoring continues
     logging.info("=" * 60)
-    logging.info("[ARCHIVE MODE] JFA event ended - SAMURAI monitoring disabled")
     logging.info("[ACTIVE] Kiku (Imperial Palace) monitoring: ENABLED")
     logging.info("[ACTIVE] Discord bot notifications: ENABLED")
-    logging.info("[ARCHIVE MODE] JFA timeline and history viewing available")
     logging.info("=" * 60)
 
     # Continue monitoring Kiku (Imperial Palace)
     asyncio.create_task(fetch_and_process_data_loop(executor))
     asyncio.create_task(broadcast_loop())
 
-    # JFA SAMURAI monitoring tasks disabled - archive mode only
-    # asyncio.create_task(samurai_fetch_and_process_loop())
-    # asyncio.create_task(samurai_broadcast_loop())
-    # asyncio.create_task(minimap_fetch_loop())
-
-    # Start 5 SAMURAI monitoring tasks with staggered delays (3 seconds apart)
-    # delay = 0
-    # for name, samurai_data in SAMURAI_DATA.items():
-    #     if samurai_data is not None:
-    #         asyncio.create_task(samurai_fetch_and_process_loop_generic(name, samurai_data, samurai_executor, delay))
-    #         asyncio.create_task(samurai_broadcast_loop_generic(name, samurai_data, delay))
-    #         logging.info(f"Started monitoring tasks for {name} with {delay}s delay")
-    #         delay += 3  # Stagger by 3 seconds
-
 @app.on_event("shutdown")
 def shutdown_event():
     logging.info("Shutting down process pool...")
     executor.shutdown(wait=True)
-    samurai_executor.shutdown(wait=True)
 
 app.add_middleware(
     CORSMiddleware,
@@ -1762,45 +1371,6 @@ except Exception as e:
     WEIGHT_CONFIG = None
     REF_ALPHA_MASK = None
 
-# SAMURAI monitor references - 5 locations
-SAMURAI_CONFIGS = [
-    {"name": "JFA1", "pixel": (862, 1202, 340, 386), "file": "JFA1.png"},
-    {"name": "JFA2", "pixel": (861, 1202, 947, 501), "file": "JFA2.png"},
-    {"name": "JFA3", "pixel": (861, 1202, 50, 348), "file": "JFA3.png"},
-    {"name": "JFA4", "pixel": (862, 1202, 110, 30), "file": "JFA4.png"},
-    {"name": "JFA5", "pixel": (860, 1202, 820, 600), "file": "JFA5.png"},
-]
-
-# Load all SAMURAI references
-SAMURAI_DATA = {}
-for config in SAMURAI_CONFIGS:
-    try:
-        ref_img = load_reference(config["file"])
-        SAMURAI_DATA[config["name"]] = {
-            "ref_pixel": config["pixel"],
-            "ref_img": ref_img,
-            "monitor_w": ref_img.size[0],
-            "monitor_h": ref_img.size[1],
-            "ref_img_bytes": img_to_bytes(ref_img),
-            "app_state": AppState(),
-            "manager": ConnectionManager(),
-        }
-        logging.info(f"{config['name']} Reference loaded: {config['file']} size={ref_img.size}")
-    except Exception as e:
-        logging.critical(f"{config['name']} ref error: {e}", exc_info=True)
-        SAMURAI_DATA[config["name"]] = None
-
-# Legacy SAMURAI variables for backward compatibility
-SAMURAI_REF_PIXEL = (862, 1202, 340, 386)
-try:
-    SAMURAI_REF_IMG = load_reference("JFA1.png")
-    SAMURAI_MONITOR_W, SAMURAI_MONITOR_H = SAMURAI_REF_IMG.size
-    SAMURAI_REF_IMG_BYTES = img_to_bytes(SAMURAI_REF_IMG)
-except Exception as e:
-    SAMURAI_REF_IMG = None
-    SAMURAI_MONITOR_W, SAMURAI_MONITOR_H = 0, 0
-    SAMURAI_REF_IMG_BYTES = b""
-
 HTML_FILE = Path("tools/wplace_monitor.html")
 
 @app.get("/", response_class=HTMLResponse)
@@ -1814,122 +1384,6 @@ async def get_html():
     if HTML_FILE.exists():
         return FileResponse(str(HTML_FILE))
     return HTMLResponse("wplace_monitor.html not found", status_code=404)
-
-@app.get("/api/minimap/history")
-async def get_minimap_history():
-    """Get minimap history timeline"""
-    return {"history": minimap_history}
-
-@app.get("/api/minimap/archive/{filename}")
-async def get_minimap_archive(filename: str):
-    """Get archived minimap image"""
-    filepath = MINIMAP_ARCHIVE_DIR / filename
-    if filepath.exists() and filepath.parent == MINIMAP_ARCHIVE_DIR:
-        return FileResponse(filepath)
-    return Response(content="Not found", status_code=404)
-
-@app.get("/api/minimap/timelapse")
-async def get_minimap_timelapse():
-    """Get pre-generated timelapse video"""
-    filepath = MINIMAP_ARCHIVE_DIR / "minimap_timelapse.mp4"
-    if filepath.exists():
-        return FileResponse(filepath, media_type="video/mp4", filename="minimap_timelapse.mp4")
-    return Response(content="Timelapse video not yet generated", status_code=404)
-
-@app.get("/api/minimap/metadata")
-async def get_minimap_metadata():
-    """Get metadata about the minimap tile range."""
-    try:
-        # Calculate tile range needed for all JFA locations
-        min_tx, max_tx = float('inf'), -float('inf')
-        min_ty, max_ty = float('inf'), -float('inf')
-
-        for config in SAMURAI_CONFIGS:
-            w, h, x, y = config["pixel"]
-            start_tx = x // TILE_SIZE
-            end_tx = (x + w - 1) // TILE_SIZE
-            start_ty = y // TILE_SIZE
-            end_ty = (y + h - 1) // TILE_SIZE
-
-            min_tx = min(min_tx, start_tx)
-            max_tx = max(max_tx, end_tx)
-            min_ty = min(min_ty, start_ty)
-            max_ty = max(max_ty, end_ty)
-
-        return {
-            "min_tx": min_tx,
-            "min_ty": min_ty,
-            "max_tx": max_tx,
-            "max_ty": max_ty,
-            "tile_size": TILE_SIZE,
-            "width": (max_tx - min_tx + 1) * TILE_SIZE,
-            "height": (max_ty - min_ty + 1) * TILE_SIZE,
-        }
-    except Exception as e:
-        logging.error(f"Error getting minimap metadata: {e}", exc_info=True)
-        return Response(content=str(e), status_code=500)
-
-@app.get("/api/minimap")
-async def get_minimap():
-    """Fetch and stitch tiles to create a minimap covering all JFA locations."""
-    try:
-        # Calculate tile range needed for all JFA locations
-        min_tx, max_tx = float('inf'), -float('inf')
-        min_ty, max_ty = float('inf'), -float('inf')
-
-        for config in SAMURAI_CONFIGS:
-            w, h, x, y = config["pixel"]
-            # Calculate tile coordinates
-            start_tx = x // TILE_SIZE
-            end_tx = (x + w - 1) // TILE_SIZE
-            start_ty = y // TILE_SIZE
-            end_ty = (y + h - 1) // TILE_SIZE
-
-            min_tx = min(min_tx, start_tx)
-            max_tx = max(max_tx, end_tx)
-            min_ty = min(min_ty, start_ty)
-            max_ty = max(max_ty, end_ty)
-
-        logging.info(f"[MINIMAP] Fetching tiles from ({min_tx},{min_ty}) to ({max_tx},{max_ty})")
-
-        # Fetch tiles
-        tiles = await fetch_tiles(min_tx, max_tx, min_ty, max_ty)
-
-        if not tiles:
-            return Response(content="Failed to fetch tiles", status_code=500)
-
-        # Stitch tiles together
-        tile_cols = max_tx - min_tx + 1
-        tile_rows = max_ty - min_ty + 1
-        comb_w = tile_cols * TILE_SIZE
-        comb_h = tile_rows * TILE_SIZE
-        combined = Image.new("RGBA", (comb_w, comb_h))
-
-        for (tx, ty), im in tiles.items():
-            px = (tx - min_tx) * TILE_SIZE
-            py = (ty - min_ty) * TILE_SIZE
-            combined.paste(im, (px, py))
-
-        # Add metadata as PNG text chunk
-        from PIL import PngImagePlugin
-
-        metadata = PngImagePlugin.PngInfo()
-        metadata.add_text("min_tx", str(min_tx))
-        metadata.add_text("min_ty", str(min_ty))
-        metadata.add_text("max_tx", str(max_tx))
-        metadata.add_text("max_ty", str(max_ty))
-
-        # Convert to bytes and return as PNG
-        buf = io.BytesIO()
-        combined.save(buf, format="PNG", pnginfo=metadata)
-        buf.seek(0)
-
-        logging.info(f"[MINIMAP] Created minimap of size {comb_w}x{comb_h}, tiles ({min_tx},{min_ty}) to ({max_tx},{max_ty})")
-
-        return Response(content=buf.getvalue(), media_type="image/png")
-    except Exception as e:
-        logging.error(f"Error creating minimap: {e}", exc_info=True)
-        return Response(content=str(e), status_code=500)
 
 
 @app.post("/api/admin/activity/clear")
@@ -1974,116 +1428,8 @@ async def ws_endpoint(ws: WebSocket):
         manager.disconnect(ws)
         logging.info(f"Client left. Total clients: {len(manager.active_connections)}")
 
-@app.websocket("/ws/samurai")
-async def ws_samurai_endpoint(ws: WebSocket):
-    await samurai_manager.connect(ws)
-    logging.info(f"[SAMURAI] Client connected. Total clients: {len(samurai_manager.active_connections)}")
-    try:
-        if SAMURAI_REF_IMG_BYTES:
-            initial_ref_message = create_image_message("ref", SAMURAI_REF_IMG_BYTES)
-            await ws.send_bytes(initial_ref_message)
-
-        async with samurai_app_state.lock:
-            metadata = samurai_app_state.latest_data["metadata"]
-            live_msg = samurai_app_state.latest_data["live_image_msg"]
-            diff_msg = samurai_app_state.latest_data["diff_image_msg"]
-
-        if metadata and live_msg and diff_msg:
-            await ws.send_json(metadata)
-            await ws.send_bytes(live_msg)
-            await ws.send_bytes(diff_msg)
-        else:
-            await ws.send_json({"type": "status", "message": "Awaiting first data capture..."})
-
-        while ws.client_state == WebSocketState.CONNECTED:
-            await ws.receive_text()
-    except WebSocketDisconnect:
-        logging.info("[SAMURAI] Client disconnected.")
-    finally:
-        samurai_manager.disconnect(ws)
-        logging.info(f"[SAMURAI] Client left. Total clients: {len(samurai_manager.active_connections)}")
-
-# 5 SAMURAI WebSocket endpoints
-@app.websocket("/ws/jfa1")
-async def ws_jfa1_endpoint(ws: WebSocket):
-    await ws_samurai_generic(ws, "JFA1")
-
-@app.websocket("/ws/jfa2")
-async def ws_jfa2_endpoint(ws: WebSocket):
-    await ws_samurai_generic(ws, "JFA2")
-
-@app.websocket("/ws/jfa3")
-async def ws_jfa3_endpoint(ws: WebSocket):
-    await ws_samurai_generic(ws, "JFA3")
-
-@app.websocket("/ws/jfa4")
-async def ws_jfa4_endpoint(ws: WebSocket):
-    await ws_samurai_generic(ws, "JFA4")
-
-@app.websocket("/ws/jfa5")
-async def ws_jfa5_endpoint(ws: WebSocket):
-    await ws_samurai_generic(ws, "JFA5")
-
-@app.websocket("/ws/minimap")
-async def ws_minimap_endpoint(ws: WebSocket):
-    await minimap_manager.connect(ws)
-    logging.info(f"[MINIMAP] Client connected. Total clients: {len(minimap_manager.active_connections)}")
-
-    try:
-        # Send latest minimap if available
-        if minimap_state["latest_image"]:
-            await ws.send_bytes(minimap_state["latest_image"])
-
-        # Keep connection alive
-        while True:
-            try:
-                await ws.receive_text()
-            except WebSocketDisconnect:
-                break
-    finally:
-        minimap_manager.disconnect(ws)
-        logging.info(f"[MINIMAP] Client disconnected. Total clients: {len(minimap_manager.active_connections)}")
-
-async def ws_samurai_generic(ws: WebSocket, name: str):
-    """Generic SAMURAI WebSocket endpoint"""
-    samurai_data = SAMURAI_DATA.get(name)
-    if samurai_data is None:
-        await ws.close(code=1011, reason=f"{name} not loaded")
-        return
-
-    manager_obj = samurai_data["manager"]
-    app_state_obj = samurai_data["app_state"]
-    ref_img_bytes = samurai_data["ref_img_bytes"]
-
-    await manager_obj.connect(ws)
-    logging.info(f"[{name}] Client connected. Total clients: {len(manager_obj.active_connections)}")
-    try:
-        if ref_img_bytes:
-            initial_ref_message = create_image_message("ref", ref_img_bytes)
-            await ws.send_bytes(initial_ref_message)
-
-        async with app_state_obj.lock:
-            metadata = app_state_obj.latest_data.get("metadata")
-            live_msg = app_state_obj.latest_data.get("live_image_msg")
-            diff_msg = app_state_obj.latest_data.get("diff_image_msg")
-
-        if metadata and live_msg and diff_msg:
-            await ws.send_json(metadata)
-            await ws.send_bytes(live_msg)
-            await ws.send_bytes(diff_msg)
-        else:
-            await ws.send_json({"type": "status", "message": "Awaiting first data capture..."})
-
-        while ws.client_state == WebSocketState.CONNECTED:
-            await ws.receive_text()
-    except WebSocketDisconnect:
-        logging.info(f"[{name}] Client disconnected.")
-    finally:
-        manager_obj.disconnect(ws)
-        logging.info(f"[{name}] Client left. Total clients: {len(manager_obj.active_connections)}")
-
 if __name__ == "__main__":
     import uvicorn
-    host = os.getenv("UVICORN_HOST", "127.0.0.1")
+    host = os.getenv("UVICORN_HOST", "0.0.0.0")
     port = int(os.getenv("UVICORN_PORT", "8000"))
-    uvicorn.run("server_new:app", host=host, port=port, reload=False, ws="websockets", log_config=None)
+    uvicorn.run(app, host=host, port=port, reload=False, ws="websockets", log_config=None)
