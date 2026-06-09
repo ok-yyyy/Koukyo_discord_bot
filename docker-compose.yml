@@ -1,10 +1,12 @@
 services:
   discord-bot:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     env_file:
-      - ../secrets/koukyo_discord_bot.env
+      - .env
     restart: unless-stopped
     environment:
       - POWER_SAVE_MODE=${POWER_SAVE_MODE:-0}
     volumes:
-      - ./data:/app/data  # 設定ファイルの永続化
+      - ./data:/app/data # 設定ファイルの永続化
