@@ -236,7 +236,7 @@ func (n *Notifier) notifyStandaloneToGuilds(content string) {
 			continue
 		}
 		channelID := *gs.NotificationChannel
-		n.enqueueHigh(func() {
+		n.EnqueueHigh(func() {
 			if _, err := n.session.ChannelMessageSend(channelID, content); err != nil {
 				log.Printf("standalone fallback notification failed guild=%s channel=%s err=%v", guildID, channelID, err)
 			}

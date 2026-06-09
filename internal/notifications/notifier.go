@@ -133,7 +133,7 @@ func (n *Notifier) startDispatchWorker() {
 	}()
 }
 
-func (n *Notifier) enqueueHigh(fn dispatchFunc) {
+func (n *Notifier) EnqueueHigh(fn dispatchFunc) {
 	if n == nil || fn == nil {
 		return
 	}
