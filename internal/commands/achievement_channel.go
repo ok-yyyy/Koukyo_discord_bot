@@ -22,7 +22,7 @@ func (c *AchievementChannelCommand) Description() string {
 }
 
 func (c *AchievementChannelCommand) ExecuteText(s *discordgo.Session, m *discordgo.MessageCreate, args []string) error {
-	if !isAdminOrGold(s, m.GuildID, m.Author.ID) {
+	if !isAdmin(s, m.GuildID, m.Author.ID) {
 		_, err := s.ChannelMessageSend(m.ChannelID, "❌ このコマンドは管理者のみ使用できます。")
 		return err
 	}
@@ -42,7 +42,7 @@ func (c *AchievementChannelCommand) ExecuteText(s *discordgo.Session, m *discord
 }
 
 func (c *AchievementChannelCommand) ExecuteSlash(s *discordgo.Session, i *discordgo.InteractionCreate) error {
-	if !isAdminOrGold(s, i.GuildID, interactionUserID(i)) {
+	if !isAdmin(s, i.GuildID, interactionUserID(i)) {
 		return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{

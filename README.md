@@ -27,7 +27,7 @@ POWER_SAVE_MODE=0
 services:
   discord-bot:
     env_file:
-      - ../secrets/koukyo_discord_bot.env
+      - .env
 ```
 
 ### 2) Docker 起動

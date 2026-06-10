@@ -29,7 +29,7 @@ func (h *Handler) OnReady(s *discordgo.Session, event *discordgo.Ready) {
 	}
 
 	// 初回READY時のみ各ギルドに起動情報を送信
-	h.SendStartupNotification(s)
+	// h.SendStartupNotification(s)
 }
 
 func (h *Handler) OnResumed(s *discordgo.Session, event *discordgo.Resumed) {
