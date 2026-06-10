@@ -105,7 +105,7 @@ func HandleSettingsButtonInteraction(
 	notifier *notifications.Notifier,
 ) {
 	// 権限チェック
-	if !isAdminOrGold(s, i.GuildID, interactionUserID(i)) {
+	if !isAdmin(s, i.GuildID, interactionUserID(i)) {
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{

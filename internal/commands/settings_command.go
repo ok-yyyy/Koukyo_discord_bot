@@ -38,7 +38,7 @@ func (c *SettingsCommand) SlashDefinition() *discordgo.ApplicationCommand {
 // ExecuteText テキストコマンド実行（管理者のみ）
 func (c *SettingsCommand) ExecuteText(s *discordgo.Session, m *discordgo.MessageCreate, args []string) error {
 	// 権限チェック
-	if !isAdminOrGold(s, m.GuildID, m.Author.ID) {
+	if !isAdmin(s, m.GuildID, m.Author.ID) {
 		s.ChannelMessageSend(m.ChannelID, "❌ このコマンドは管理者のみ使用できます。")
 		return nil
 	}
@@ -58,7 +58,7 @@ func (c *SettingsCommand) ExecuteText(s *discordgo.Session, m *discordgo.Message
 // ExecuteSlash スラッシュコマンド実行（管理者のみ）
 func (c *SettingsCommand) ExecuteSlash(s *discordgo.Session, i *discordgo.InteractionCreate) error {
 	// 権限チェック
-	if !isAdminOrGold(s, i.GuildID, interactionUserID(i)) {
+	if !isAdmin(s, i.GuildID, interactionUserID(i)) {
 		return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
@@ -82,12 +82,13 @@ func (c *SettingsCommand) ExecuteSlash(s *discordgo.Session, i *discordgo.Intera
 	})
 }
 
-// isAdminOrGold 管理者またはGOLD本人かチェック
-func isAdminOrGold(s *discordgo.Session, guildID, userID string) bool {
-	// GOLD本人のID（環境変数から取得可能にする）
-	const GOLD_USER_ID = "772068808985804810"
+// isAdmin 管理者またはBotオーナーかチェック
+func isAdmin(s *discordgo.Session, guildID, userID string) bool {
+	// BotオーナーのID
+	// TODO: 環境変数から設定できるようにする
+	const OWNER_USER_ID = "1445347049611460642"
 
-	if userID == GOLD_USER_ID {
+	if userID == OWNER_USER_ID {
 		return true
 	}
 

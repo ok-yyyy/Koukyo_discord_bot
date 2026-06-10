@@ -25,7 +25,7 @@ func (c *ProxyDeleteCommand) ExecuteText(s *discordgo.Session, m *discordgo.Mess
 		_, err := s.ChannelMessageSend(m.ChannelID, "❌ このコマンドはサーバー内でのみ利用できます。")
 		return err
 	}
-	if !isAdminOrGold(s, m.GuildID, m.Author.ID) {
+	if !isAdmin(s, m.GuildID, m.Author.ID) {
 		_, err := s.ChannelMessageSend(m.ChannelID, "❌ このコマンドは管理者のみ使用できます。")
 		return err
 	}
@@ -64,7 +64,7 @@ func (c *ProxyDeleteCommand) ExecuteSlash(s *discordgo.Session, i *discordgo.Int
 	} else if i.User != nil {
 		requesterID = i.User.ID
 	}
-	if !isAdminOrGold(s, i.GuildID, requesterID) {
+	if !isAdmin(s, i.GuildID, requesterID) {
 		return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
