@@ -46,7 +46,7 @@ func TestGetTimezoneLabel(t *testing.T) {
 	if label != "アルゼンチン" {
 		t.Errorf("Expected アルゼンチン, got %s", label)
 	}
-	
+
 	label = GetTimezoneLabel("America/Argentina/Buenos_Aires")
 	if label != "アルゼンチン" {
 		t.Errorf("Expected アルゼンチン, got %s", label)
@@ -58,7 +58,7 @@ func TestGetTimezoneFlag(t *testing.T) {
 	if flag != "🇦🇷" {
 		t.Errorf("Expected 🇦🇷, got %s", flag)
 	}
-	
+
 	flag = GetTimezoneFlag("America/Argentina/Buenos_Aires")
 	if flag != "🇦🇷" {
 		t.Errorf("Expected 🇦🇷, got %s", flag)

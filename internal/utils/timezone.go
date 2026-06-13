@@ -167,17 +167,17 @@ func ConvertTime(fromTz, toTz, timeStr string) (string, error) {
 // GetTimezoneLabel タイムゾーン名からラベルを取得
 func GetTimezoneLabel(tzName string) string {
 	labels := map[string]string{
-		"UTC":                 "協定世界時",
-		"America/Los_Angeles": "サンタクララ",
-		"PST":                 "サンタクララ",
-		"PDT":                 "サンタクララ",
-		"Europe/Paris":        "フランス",
-		"CET":                 "フランス",
-		"CEST":                "フランス",
+		"UTC":                            "協定世界時",
+		"America/Los_Angeles":            "サンタクララ",
+		"PST":                            "サンタクララ",
+		"PDT":                            "サンタクララ",
+		"Europe/Paris":                   "フランス",
+		"CET":                            "フランス",
+		"CEST":                           "フランス",
 		"America/Argentina/Buenos_Aires": "アルゼンチン",
-		"ART":                 "アルゼンチン",
-		"Asia/Tokyo":          "日本標準時",
-		"JST":                 "日本標準時",
+		"ART":                            "アルゼンチン",
+		"Asia/Tokyo":                     "日本標準時",
+		"JST":                            "日本標準時",
 	}
 
 	if label, ok := labels[tzName]; ok {
@@ -189,17 +189,17 @@ func GetTimezoneLabel(tzName string) string {
 // GetTimezoneFlag タイムゾーン名から国旗を取得
 func GetTimezoneFlag(tzName string) string {
 	flags := map[string]string{
-		"UTC":                 "🌐",
-		"America/Los_Angeles": "🇺🇸",
-		"PST":                 "🇺🇸",
-		"PDT":                 "🇺🇸",
-		"Europe/Paris":        "🇫🇷",
-		"CET":                 "🇫🇷",
-		"CEST":                "🇫🇷",
+		"UTC":                            "🌐",
+		"America/Los_Angeles":            "🇺🇸",
+		"PST":                            "🇺🇸",
+		"PDT":                            "🇺🇸",
+		"Europe/Paris":                   "🇫🇷",
+		"CET":                            "🇫🇷",
+		"CEST":                           "🇫🇷",
 		"America/Argentina/Buenos_Aires": "🇦🇷",
-		"ART":                 "🇦🇷",
-		"Asia/Tokyo":          "🇯🇵",
-		"JST":                 "🇯🇵",
+		"ART":                            "🇦🇷",
+		"Asia/Tokyo":                     "🇯🇵",
+		"JST":                            "🇯🇵",
 	}
 	if flag, ok := flags[tzName]; ok {
 		return flag

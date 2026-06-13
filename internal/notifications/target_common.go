@@ -51,14 +51,14 @@ type targetResult struct {
 }
 
 type rawTarget struct {
-	ID              string `json:"id"`
-	Label           string `json:"label"`
-	Origin          string `json:"origin"`
-	Template        string `json:"template"`
-	TemplatePath    string `json:"template_path"`
+	ID              string   `json:"id"`
+	Label           string   `json:"label"`
+	Origin          string   `json:"origin"`
+	Template        string   `json:"template"`
+	TemplatePath    string   `json:"template_path"`
 	Aliases         []string `json:"aliases"`
-	IntervalSeconds int    `json:"interval_seconds"`
-	Interval        int    `json:"interval"`
+	IntervalSeconds int      `json:"interval_seconds"`
+	Interval        int      `json:"interval"`
 }
 
 func normalizeTargetKey(value string) string {

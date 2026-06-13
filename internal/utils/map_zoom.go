@@ -19,7 +19,7 @@ const (
 	zoomBias = -0.43
 	// Wplace visibility floor (canvas tiles can disappear below this on wplace.live).
 	minCanvasZoom = 10.7
-	maxSafeZoom = 22.0
+	maxSafeZoom   = 22.0
 )
 
 // ZoomFromImageSizeRaw calculates a deterministic MapLibre/WebMercator zoom that

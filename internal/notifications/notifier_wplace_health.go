@@ -22,10 +22,10 @@ const (
 
 // wplaceHealthState はグローバルな障害追跡状態。Notifier に埋め込む。
 type wplaceHealthState struct {
-	mu           sync.Mutex
-	outageSince  time.Time // ゼロ値 = 正常
-	consecFails  int
-	alerted      bool // 障害通知を送信済みか
+	mu          sync.Mutex
+	outageSince time.Time // ゼロ値 = 正常
+	consecFails int
+	alerted     bool // 障害通知を送信済みか
 }
 
 type wplaceHealthResponse struct {
