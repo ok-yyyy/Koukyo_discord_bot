@@ -29,15 +29,15 @@ func (n *Notifier) StartMonitoring() {
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 
-		lastHeartbeat := time.Now()
+		// lastHeartbeat := time.Now()
 		for range ticker.C {
 			n.maybeRunStandaloneFallback(time.Now())
 
 			// Lightweight heartbeat to detect a stuck monitoring loop.
-			if time.Since(lastHeartbeat) >= 60*time.Second {
-				lastHeartbeat = time.Now()
-				log.Printf("notifier: monitoring heartbeat power_save=%v guilds=%d", n.monitor.State.IsPowerSaveMode(), len(n.session.State.Guilds))
-			}
+			// if time.Since(lastHeartbeat) >= 60*time.Second {
+			// 	lastHeartbeat = time.Now()
+			// 	log.Printf("notifier: monitoring heartbeat power_save=%v guilds=%d", n.monitor.State.IsPowerSaveMode(), len(n.session.State.Guilds))
+			// }
 
 			// 監視データが更新されたら全サーバーをチェック
 			if !n.monitor.State.HasData() {

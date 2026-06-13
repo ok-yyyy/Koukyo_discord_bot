@@ -361,7 +361,7 @@ class PixelActivityTracker:
         dq.append(now)
         window_count = len(dq)
 
-        logging.info(
+        logging.debug(
             f"[VANDAL_DEBUG] Checking painter {painter_id}: "
             f"current_count={current_count}, threshold={threshold}, "
             f"is_exceeded={is_exceeded}"
@@ -419,7 +419,7 @@ class PixelActivityTracker:
             # 新たに発生した差分ピクセル = 荒らし候補
             candidate_pixels = diff_set - self.vandalized_pixels - self.pending_coords
             if not candidate_pixels:
-                logging.info("[ACTIVITY] No new vandalized pixels to queue.")
+                logging.debug("[ACTIVITY] No new vandalized pixels to queue.")
                 if diff_set:
                     snapshot_coords = set(diff_set)
             else:
@@ -460,7 +460,7 @@ class PixelActivityTracker:
             self.pending_queue.put_nowait(('restore', pixel_coord))
 
         if enqueued_vandals or enqueued_restores:
-            logging.info(f"[ACTIVITY] Queued {len(enqueued_vandals)} vandal(s) and {len(enqueued_restores)} restore(s) for lookup (pending={self.pending_queue.qsize()}).")
+            logging.debug(f"[ACTIVITY] Queued {len(enqueued_vandals)} vandal(s) and {len(enqueued_restores)} restore(s) for lookup (pending={self.pending_queue.qsize()}).")
 
     async def _log_detected_snapshot(self, pixel_coords: Iterable[Tuple[int, int]]):
         if not self.event_logger:
@@ -506,7 +506,7 @@ class PixelActivityTracker:
             if detected_ts is not None:
                 age = time.monotonic() - detected_ts
                 if age > VANDAL_PIXEL_MAX_AGE_SECONDS:
-                    logging.info(
+                    logging.debug(
                         f"[VANDAL] Pixel {pixel_coord} stale ({age:.2f}s), skipping to avoid false positive."
                     )
                     return False
@@ -554,7 +554,7 @@ class PixelActivityTracker:
             )
 
             if not is_vandal:
-                logging.info(
+                logging.debug(
                     f"[ACTIVITY] Painter {painter_id_str} below threshold "
                     f"({VANDAL_RECENT_PIXEL_THRESHOLD} px / {VANDAL_RECENT_WINDOW_SECONDS}s). Not marking as vandal for pixel {pixel_coord}."
                 )
@@ -562,10 +562,10 @@ class PixelActivityTracker:
 
             still_diff = await self._pixel_still_differs(pixel_coord)
             if still_diff is False:
-                logging.info(f"[ACTIVITY] Pixel {pixel_coord} already restored before confirmation. Skipping.")
+                logging.debug(f"[ACTIVITY] Pixel {pixel_coord} already restored before confirmation. Skipping.")
                 return False
             if still_diff is None:
-                logging.info(f"[ACTIVITY] Could not confirm state of pixel {pixel_coord}. Skipping to avoid false positive.")
+                logging.debug(f"[ACTIVITY] Could not confirm state of pixel {pixel_coord}. Skipping to avoid false positive.")
                 return False
 
             # 閾値を超えた場合のみ、荒らしピクセルとして記録
@@ -576,7 +576,7 @@ class PixelActivityTracker:
                 logging.debug(f"[DEBUG] After adding: vandalized_pixels={self.vandalized_pixels}")
                 await self._save_locked()
 
-            logging.info(f"[ACTIVITY] Recorded pixel {pixel_coord} by painter {painter_id} as vandalized.")
+            logging.debug(f"[ACTIVITY] Recorded pixel {pixel_coord} by painter {painter_id} as vandalized.")
             return True
 
         elif activity_type == 'restore':
@@ -595,7 +595,7 @@ class PixelActivityTracker:
             # 修復カウントを反映した最新状態を保存する
             async with self.lock:
                 await self._save_locked()
-            logging.info(f"[ACTIVITY] Recorded pixel {pixel_coord} by painter {painter_id} as restored.")
+            logging.debug(f"[ACTIVITY] Recorded pixel {pixel_coord} by painter {painter_id} as restored.")
             return True
 
         return False
@@ -711,7 +711,7 @@ class PixelActivityTracker:
                 for _ in range(offset):
                     self._decrement_daily_counter(user_data.get("daily_vandal_counts", {}))
                     self._decrement_daily_counter(user_data.get("daily_restored_counts", {}))
-                logging.info(
+                logging.debug(
                     f"[ACTIVITY] Applied legacy offset ({offset}) for painter {painter_id}. "
                     f"Totals -> vandal:{user_data['vandal_count']} restored:{user_data['restored_count']}"
                 )
@@ -774,14 +774,14 @@ class PixelActivityTracker:
                 "x": int(pixel_coord[0]),
                 "y": int(pixel_coord[1]),
             }
-            logging.info(f"[ACTIVITY] Vandalism by {painter_id}. Total: {user_data['vandal_count']}, Daily: {user_data['daily_vandal_counts'][current_date_str]}")
+            logging.debug(f"[ACTIVITY] Vandalism by {painter_id}. Total: {user_data['vandal_count']}, Daily: {user_data['daily_vandal_counts'][current_date_str]}")
             return user_data['vandal_count'], user_data['daily_vandal_counts'][current_date_str]
 
         elif activity_type == 'restore':
             if user_data['vandal_count'] > 0:
                 user_data['vandal_count'] -= 1
                 self._decrement_daily_counter(user_data['daily_vandal_counts'])
-                logging.info(
+                logging.debug(
                     f"[ACTIVITY] Restoration by {painter_id} offset a previous vandalism. "
                     f"Remaining vandal count: {user_data['vandal_count']}"
                 )
@@ -793,7 +793,7 @@ class PixelActivityTracker:
 
             user_data['restored_count'] += 1
             user_data['daily_restored_counts'][current_date_str] = user_data['daily_restored_counts'].get(current_date_str, 0) + 1
-            logging.info(f"[ACTIVITY] Restoration by {painter_id}. Total: {user_data['restored_count']}, Daily: {user_data['daily_restored_counts'][current_date_str]}")
+            logging.debug(f"[ACTIVITY] Restoration by {painter_id}. Total: {user_data['restored_count']}, Daily: {user_data['daily_restored_counts'][current_date_str]}")
             logging.debug(f"[DEBUG] Restored count for {painter_id}: total={user_data['restored_count']}, daily={user_data['daily_restored_counts'][current_date_str]}")
             return user_data['restored_count'], user_data['daily_restored_counts'][current_date_str]
 
@@ -1186,7 +1186,7 @@ def verify_admin_request(request: Request):
 
 async def fetch_tiles(start_tx: int, end_tx: int, start_ty: int, end_ty: int) -> Dict[Tuple[int, int], Image.Image]:
     """Asynchronously fetches all required tiles."""
-    logging.info("[FETCH] Start")
+    logging.debug("[FETCH] Start")
     tasks = []
     tile_coords = []
     for tx in range(start_tx, end_tx + 1):
@@ -1195,7 +1195,7 @@ async def fetch_tiles(start_tx: int, end_tx: int, start_ty: int, end_ty: int) ->
             tasks.append(asyncio.to_thread(get_image_from_url, url))
             tile_coords.append((tx, ty))
 
-    logging.info(f"[FETCH] Fetching {len(tasks)} tiles...")
+    logging.debug(f"[FETCH] Fetching {len(tasks)} tiles...")
     results = await asyncio.gather(*tasks)
 
     tiles = {}
@@ -1203,7 +1203,7 @@ async def fetch_tiles(start_tx: int, end_tx: int, start_ty: int, end_ty: int) ->
         if im is not None:
             tx, ty = tile_coords[i]
             tiles[(tx, ty)] = im.convert("RGBA")
-    logging.info(f"[FETCH] End, got {len(tiles)} tiles")
+    logging.debug(f"[FETCH] End, got {len(tiles)} tiles")
     return tiles
 
 async def fetch_and_process_data_loop(executor: ProcessPoolExecutor):
@@ -1217,7 +1217,7 @@ async def fetch_and_process_data_loop(executor: ProcessPoolExecutor):
 
     while True:
         try:
-            logging.info("[PROCESS] Loop start")
+            logging.debug("[PROCESS] Loop start")
 
             global_x = tile_x * TILE_SIZE + x_in_tile
             global_y = tile_y * TILE_SIZE + y_in_tile
@@ -1226,28 +1226,28 @@ async def fetch_and_process_data_loop(executor: ProcessPoolExecutor):
             end_tx = (global_x + MONITOR_W - 1) // TILE_SIZE
             end_ty = (global_y + MONITOR_H - 1) // TILE_SIZE
 
-            logging.info("[PROCESS] Calling fetch_tiles")
+            logging.debug("[PROCESS] Calling fetch_tiles")
             tiles = await fetch_tiles(start_tx, end_tx, start_ty, end_ty)
-            logging.info(f"[PROCESS] fetch_tiles returned")
+            logging.debug(f"[PROCESS] fetch_tiles returned")
 
             # Check if we got enough tiles (should have all tiles in the range)
             expected_tile_count = (end_tx - start_tx + 1) * (end_ty - start_ty + 1)
             actual_tile_count = len(tiles)
 
             if tiles and actual_tile_count >= expected_tile_count:
-                logging.info("[PROCESS] Calling stitch_and_crop_tiles in executor")
+                logging.debug("[PROCESS] Calling stitch_and_crop_tiles in executor")
                 live_img = await loop.run_in_executor(
                     executor, stitch_and_crop_tiles, tiles, start_tx, start_ty, end_tx, end_ty,
                     global_x, global_y, MONITOR_W, MONITOR_H, TILE_SIZE
                 )
-                logging.info("[PROCESS] stitch_and_crop_tiles returned")
+                logging.debug("[PROCESS] stitch_and_crop_tiles returned")
 
                 if live_img:
-                    logging.info("[PROCESS] Calling process_live_image in executor")
+                    logging.debug("[PROCESS] Calling process_live_image in executor")
                     processed_data = await loop.run_in_executor(
                         executor, process_live_image, REF_IMG, live_img, 45, 15, WEIGHT_CONFIG
                     )
-                    logging.info("[PROCESS] process_live_image returned")
+                    logging.debug("[PROCESS] process_live_image returned")
 
                     if processed_data:
                         schedule_activity_payload_processing(processed_data.get("activity_payload"))
@@ -1265,7 +1265,7 @@ async def fetch_and_process_data_loop(executor: ProcessPoolExecutor):
 
                         last_successful_data = processed_data  # Cache successful data
                         diff_pct = processed_data["diff_pct"]
-                        logging.info(f"[PROCESS] New data ready. Diff: {diff_pct:.2f}%")
+                        logging.debug(f"[PROCESS] New data ready. Diff: {diff_pct:.2f}%")
                 else:
                     # Failed to stitch tiles, send error message
                     logging.warning("[PROCESS] Failed to stitch tiles. Sending error message.")
@@ -1292,23 +1292,23 @@ async def fetch_and_process_data_loop(executor: ProcessPoolExecutor):
         except Exception as e:
             logging.error(f"[PROCESS] Error in async processing loop: {e}", exc_info=True)
             await asyncio.sleep(10)
-        logging.info("[PROCESS] Loop end")
+        logging.debug("[PROCESS] Loop end")
         await asyncio.sleep(5.0)
 
 async def broadcast_loop():
     interval = 5.0 # Updated to 1.0 seconds (maximum speed)
     logging.info(f"[BROADCAST] Starting broadcast loop with interval: {interval:.2f}s")
     while True:
-        logging.info(f"[BROADCAST] Loop start, sleeping for {interval:.2f}s")
+        logging.debug(f"[BROADCAST] Loop start, sleeping for {interval:.2f}s")
         await asyncio.sleep(interval)
-        logging.info("[BROADCAST] Woke up after sleep")
+        logging.debug("[BROADCAST] Woke up after sleep")
 
         current_data = None
         async with app_state.lock:
             current_data = app_state.latest_data.copy()
 
         if manager.active_connections and current_data and current_data["metadata"]:
-            logging.info(f"[BROADCAST] Broadcasting to {len(manager.active_connections)} clients.")
+            logging.debug(f"[BROADCAST] Broadcasting to {len(manager.active_connections)} clients.")
             await manager.broadcast_json(current_data["metadata"])
 
             # Only broadcast images if they exist (not an error message)
@@ -1316,9 +1316,9 @@ async def broadcast_loop():
                 await manager.broadcast_bytes(current_data["live_image_msg"])
                 await manager.broadcast_bytes(current_data["diff_image_msg"])
 
-            logging.info("[BROADCAST] Broadcast complete")
+            logging.debug("[BROADCAST] Broadcast complete")
         else:
-            logging.info("[BROADCAST] No data or no clients, skipping broadcast")
+            logging.debug("[BROADCAST] No data or no clients, skipping broadcast")
 
 # ------------------ FastAPI App ------------------
 
