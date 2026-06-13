@@ -25,13 +25,15 @@ func NewExplanationCommand() *ExplanationCommand { return &ExplanationCommand{} 
 
 func (c *ExplanationCommand) Name() string { return "explanation" }
 
-func (c *ExplanationCommand) Description() string { return "このBotのアーキテクチャ/通知ロジックを解説します" }
+func (c *ExplanationCommand) Description() string {
+	return "このBotのアーキテクチャ/通知ロジックを解説します"
+}
 
 func (c *ExplanationCommand) ExecuteText(s *discordgo.Session, m *discordgo.MessageCreate, args []string) error {
 	embed := buildExplanationEmbed(1)
 	_, err := s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
-		Embeds:      []*discordgo.MessageEmbed{embed},
-		Components:  buildExplanationComponents(1),
+		Embeds:          []*discordgo.MessageEmbed{embed},
+		Components:      buildExplanationComponents(1),
 		AllowedMentions: &discordgo.MessageAllowedMentions{},
 	})
 	return err
@@ -42,8 +44,8 @@ func (c *ExplanationCommand) ExecuteSlash(s *discordgo.Session, i *discordgo.Int
 	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-			Flags:  discordgo.MessageFlagsEphemeral,
+			Embeds:     []*discordgo.MessageEmbed{embed},
+			Flags:      discordgo.MessageFlagsEphemeral,
 			Components: buildExplanationComponents(1),
 		},
 	})
@@ -62,50 +64,50 @@ func buildExplanationEmbed(page int) *discordgo.MessageEmbed {
 	fields := []*discordgo.MessageEmbedField{}
 	if page == 1 {
 		fields = []*discordgo.MessageEmbedField{
-		{
-			Name: "1) 監視データの入口",
-			Value: strings.Join([]string{
-				"- WebSocket から差分率/差分px/加重差分率などを受信し、`MonitorState` に保存します。",
-				"- 最新値(`LatestData`)と最新画像(`LatestImages`)が通知や /get に使われます。",
-			}, "\n"),
-			Inline: false,
-		},
-		{
-			Name: "2) メイン通知フロー",
-			Value: strings.Join([]string{
-				"- 1秒ごとに全ギルドの設定を見て、差分の Tier(10/20/.../100) 変化時のみ通知します。",
-				"- 指標は `差分率` / `加重差分率` をギルド設定で切り替えます。",
-				"- Pixel Perfect(0%) に戻ったときは修復完了通知を出します。",
-			}, "\n"),
-			Inline: false,
-		},
-		{
-			Name: "3) small-diff (<=10px) スパム抑制",
-			Value: strings.Join([]string{
-				"- 差分pxが少ない時は、1つのテキストメッセージを編集して追従します。",
-				"- いったん 11px以上を検知したら、0%に戻るまで embed 通知フローに固定します（混在防止）。",
-				"- 10px->11px の移行時は、しきい値未満でも 1回だけスナップショット embed を送ります。",
-			}, "\n"),
-			Inline: false,
-		},
-		{
-			Name: "4) 追加監視 (watch_targets / progress_targets)",
-			Value: strings.Join([]string{
-				"- `data/watch_targets.json` / `data/progress_targets.json` + `data/template_img/` を元に、指定範囲を定期取得して差分/進捗を判定します。",
-				"- タイル取得は /get と同じ結合ロジックを使い、キャッシュ回避クエリで新鮮な画像を取りに行きます。",
-				"- `!{id}`（＋aliases）で手動取得できます。",
-			}, "\n"),
-			Inline: false,
-		},
-		{
-			Name: "5) /get とタイル",
-			Value: strings.Join([]string{
-				"- Wplace のタイルは 1000x1000 PNG、全体は 2048x2048 タイルです。",
-				"- 必要タイルを並列DLして結合し、指定範囲を切り抜いて返します（最大16タイル）。",
-				"- 画像が古くなる問題があるため、タイルURLに `?t=` を付けてキャッシュを回避します。",
-			}, "\n"),
-			Inline: false,
-		},
+			{
+				Name: "1) 監視データの入口",
+				Value: strings.Join([]string{
+					"- WebSocket から差分率/差分px/加重差分率などを受信し、`MonitorState` に保存します。",
+					"- 最新値(`LatestData`)と最新画像(`LatestImages`)が通知や /get に使われます。",
+				}, "\n"),
+				Inline: false,
+			},
+			{
+				Name: "2) メイン通知フロー",
+				Value: strings.Join([]string{
+					"- 1秒ごとに全ギルドの設定を見て、差分の Tier(10/20/.../100) 変化時のみ通知します。",
+					"- 指標は `差分率` / `加重差分率` をギルド設定で切り替えます。",
+					"- Pixel Perfect(0%) に戻ったときは修復完了通知を出します。",
+				}, "\n"),
+				Inline: false,
+			},
+			{
+				Name: "3) small-diff (<=10px) スパム抑制",
+				Value: strings.Join([]string{
+					"- 差分pxが少ない時は、1つのテキストメッセージを編集して追従します。",
+					"- いったん 11px以上を検知したら、0%に戻るまで embed 通知フローに固定します（混在防止）。",
+					"- 10px->11px の移行時は、しきい値未満でも 1回だけスナップショット embed を送ります。",
+				}, "\n"),
+				Inline: false,
+			},
+			{
+				Name: "4) 追加監視 (watch_targets / progress_targets)",
+				Value: strings.Join([]string{
+					"- `data/watch_targets.json` / `data/progress_targets.json` + `data/template_img/` を元に、指定範囲を定期取得して差分/進捗を判定します。",
+					"- タイル取得は /get と同じ結合ロジックを使い、キャッシュ回避クエリで新鮮な画像を取りに行きます。",
+					"- `!{id}`（＋aliases）で手動取得できます。",
+				}, "\n"),
+				Inline: false,
+			},
+			{
+				Name: "5) /get とタイル",
+				Value: strings.Join([]string{
+					"- Wplace のタイルは 1000x1000 PNG、全体は 2048x2048 タイルです。",
+					"- 必要タイルを並列DLして結合し、指定範囲を切り抜いて返します（最大16タイル）。",
+					"- 画像が古くなる問題があるため、タイルURLに `?t=` を付けてキャッシュを回避します。",
+				}, "\n"),
+				Inline: false,
+			},
 		}
 	} else if page == 2 {
 		fields = []*discordgo.MessageEmbedField{
@@ -221,8 +223,8 @@ func HandleExplanationPagination(s *discordgo.Session, i *discordgo.InteractionC
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,
 		Data: &discordgo.InteractionResponseData{
-			Embeds:      []*discordgo.MessageEmbed{embed},
-			Components:  buildExplanationComponents(page),
+			Embeds:          []*discordgo.MessageEmbed{embed},
+			Components:      buildExplanationComponents(page),
 			AllowedMentions: &discordgo.MessageAllowedMentions{},
 		},
 	})

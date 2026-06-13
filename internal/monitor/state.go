@@ -74,11 +74,11 @@ type MonitorState struct {
 	DailyPeakLiveImage []byte
 	DailyPeakDiffImage []byte
 	// Daily diff summary tracking (JST)
-	DailySummaries map[string]DailySummary
-	heatmapQueue        chan []byte
-	heatmapStopOnce     sync.Once
-	heatmapCancelFunc   context.CancelFunc
-	mu                  sync.RWMutex
+	DailySummaries    map[string]DailySummary
+	heatmapQueue      chan []byte
+	heatmapStopOnce   sync.Once
+	heatmapCancelFunc context.CancelFunc
+	mu                sync.RWMutex
 }
 
 // DiffRecord 差分履歴のレコード
@@ -122,12 +122,12 @@ type ReferencePixels struct {
 func NewMonitorState() *MonitorState {
 	ctx, cancel := context.WithCancel(context.Background())
 	ms := &MonitorState{
-		DiffHistory:       ring.New(historyLimit),
+		DiffHistory:         ring.New(historyLimit),
 		WeightedDiffHistory: ring.New(historyLimit),
-		PowerSaveMode:     false,
-		heatmapQueue:      make(chan []byte, 1),
-		heatmapCancelFunc: cancel,
-		DailySummaries:    make(map[string]DailySummary),
+		PowerSaveMode:       false,
+		heatmapQueue:        make(chan []byte, 1),
+		heatmapCancelFunc:   cancel,
+		DailySummaries:      make(map[string]DailySummary),
 	}
 	ms.startHeatmapWorker(ctx)
 	return ms

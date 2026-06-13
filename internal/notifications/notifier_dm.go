@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	dmDiffThreshold  = 10.0           // 加重差分率の通知閾値（%）
-	dmNotifyMetric   = "weighted"     // 常に加重差分率を使用
+	dmDiffThreshold  = 10.0            // 加重差分率の通知閾値（%）
+	dmNotifyMetric   = "weighted"      // 常に加重差分率を使用
 	dmNotifyCooldown = 3 * time.Minute // 連続通知を防ぐクールダウン
 )
 

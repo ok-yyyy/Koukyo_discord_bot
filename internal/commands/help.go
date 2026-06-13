@@ -48,7 +48,7 @@ func (c *HelpCommand) SlashDefinition() *discordgo.ApplicationCommand {
 func (c *HelpCommand) buildHelpEmbed() *discordgo.MessageEmbed {
 	embed := &discordgo.MessageEmbed{
 		Title:       "📋 コマンド一覧",
-		Description: "利用可能なコマンドを表示しています。詳細は各コマンドを実行してください。",
+		Description: "利用可能なコマンドの一部を表示しています。詳細は各コマンドを実行してください。",
 		Color:       0x5865F2, // Discord Blurple
 		Fields:      []*discordgo.MessageEmbedField{},
 	}
@@ -61,6 +61,11 @@ func (c *HelpCommand) buildHelpEmbed() *discordgo.MessageEmbed {
 	sort.Slice(cmds, func(i, j int) bool {
 		return cmds[i].Name() < cmds[j].Name()
 	})
+
+	const maxFields = 25
+	if len(cmds) > maxFields {
+		cmds = cmds[:maxFields]
+	}
 	for _, cmd := range cmds {
 		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 			Name:   "🔹 " + cmd.Name(),

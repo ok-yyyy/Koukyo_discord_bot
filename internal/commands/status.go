@@ -31,7 +31,7 @@ func (c *StatusCommand) Description() string {
 
 func (c *StatusCommand) ExecuteText(s *discordgo.Session, m *discordgo.MessageCreate, args []string) error {
 	embed := embeds.BuildStatusEmbed(c.botInfo, s)
-	
+
 	// 通知ドロップ統計を追加
 	if c.notifier != nil {
 		high, low := c.notifier.GetDroppedNotificationStats()
@@ -43,14 +43,14 @@ func (c *StatusCommand) ExecuteText(s *discordgo.Session, m *discordgo.MessageCr
 			})
 		}
 	}
-	
+
 	_, err := s.ChannelMessageSendEmbed(m.ChannelID, embed)
 	return err
 }
 
 func (c *StatusCommand) ExecuteSlash(s *discordgo.Session, i *discordgo.InteractionCreate) error {
 	embed := embeds.BuildStatusEmbed(c.botInfo, s)
-	
+
 	// 通知ドロップ統計を追加
 	if c.notifier != nil {
 		high, low := c.notifier.GetDroppedNotificationStats()
@@ -62,7 +62,7 @@ func (c *StatusCommand) ExecuteSlash(s *discordgo.Session, i *discordgo.Interact
 			})
 		}
 	}
-	
+
 	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
