@@ -2,6 +2,7 @@ package notifications
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -19,6 +20,8 @@ const (
 	// HTTP失敗がこの回数連続したら障害とみなす（一時的なネットワーク揺らぎを除外）
 	wplaceConsecFailsMax = 2
 )
+
+var errWplaceRateLimited = errors.New("rate limited (429)")
 
 // wplaceHealthState はグローバルな障害追跡状態。Notifier に埋め込む。
 type wplaceHealthState struct {
@@ -59,6 +62,12 @@ func (n *Notifier) startWplaceHealthLoop() {
 
 func (n *Notifier) checkWplaceHealth(client *http.Client) {
 	resp, err := fetchWplaceHealth(client)
+
+	// 429は障害判定・通知を行わない
+	if errors.Is(err, errWplaceRateLimited) {
+		log.Printf("wplace health check skipped: rate limited (429)")
+		return
+	}
 
 	n.wplaceHealth.mu.Lock()
 	defer n.wplaceHealth.mu.Unlock()
@@ -113,6 +122,10 @@ func fetchWplaceHealth(client *http.Client) (*wplaceHealthResponse, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusTooManyRequests {
+		io.Copy(io.Discard, resp.Body) //nolint:errcheck
+		return nil, errWplaceRateLimited
+	}
 	if resp.StatusCode != http.StatusOK {
 		io.Copy(io.Discard, resp.Body) //nolint:errcheck
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
