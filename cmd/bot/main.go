@@ -18,16 +18,12 @@ import (
 	_ "time/tzdata"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/joho/godotenv"
 )
 
 // Global monitor instance
 var globalMonitor *monitor.Monitor
 
 func main() {
-	// Load .env file if it exists
-	_ = godotenv.Load()
-
 	cfg := config.Load()
 	if cfg == nil {
 		log.Fatal("Failed to load configuration")

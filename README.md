@@ -277,16 +277,6 @@ Bot に以下の Intents を許可してください:
 
 ## 実行方法
 
-ローカル実行:
-```bash
-go run ./cmd/bot
-```
-
-ビルド:
-```bash
-go build -o bot.exe ./cmd/bot
-```
-
 Docker:
 ```bash
 docker compose up --build
