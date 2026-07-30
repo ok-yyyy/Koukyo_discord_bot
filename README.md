@@ -95,14 +95,10 @@ go run ./cmd/bot
 - `help` - コマンド一覧
 - `info` - Bot 情報
 - `ping` - 疎通確認
-- `proxy` - `[Golden Proxy]{display} (@username / userID)` で代理投稿（Webhook）
-- `proxydelete` - 代理投稿メッセージを削除（管理者向け）
 - `time` - 時刻表示/時差変換
 - `paint` - Paint 回復時間の計算・通知予約（スラッシュ専用）
   - `/paint set`: 現在値と上限値を入力し、全回復までの時間を計算。`notify: on` で完了時にDM通知。
   - `/paint cancel`: 予約されている通知をキャンセル。
-
-※ `proxy` はチャンネルごとにWebhookを再利用し、Webhook由来の投稿者IDが毎回変わらないようにしています。
 
 ※ `graph` / `timelapse` / `heatmap` は WebSocket 監視が有効なときのみ利用できます。
 

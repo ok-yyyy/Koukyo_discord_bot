@@ -39,8 +39,6 @@ func NewHandler(prefix string, botInfo *models.BotInfo, mon *monitor.Monitor, se
 		commands.NewNowCommand(mon),
 		commands.NewTimeCommand(),
 		commands.NewConvertCommand(),
-		commands.NewProxyCommand(),
-		commands.NewProxyDeleteCommand(),
 		commands.NewMeCommand(dataDir, activityLimiter),
 		commands.NewAchievementsCommand(dataDir),
 		commands.NewSettingsCommand(settingsManager, notifier), // settingsManager を渡す
