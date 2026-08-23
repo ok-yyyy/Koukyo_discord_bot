@@ -24,9 +24,9 @@ import struct # Added for binary packing
 import random
 import json
 from pathlib import Path
-from typing import Tuple, List, Dict, Any, Optional, Set, Iterable
+from typing import Tuple, List, Dict, Any, Optional, Set
 from concurrent.futures import ProcessPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime
 from collections import deque, defaultdict
 
 import requests
@@ -39,8 +39,6 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Requ
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.websockets import WebSocketState
-
-from analytics.event_logger import VandalEventLogger
 
 # ------------------ Logging Config ------------------
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -62,7 +60,6 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 ACTIVITY_TRACKER_PATH = DATA_DIR / "user_activity.json"
 ACTIVITY_STATE_FILE = DATA_DIR / "activity_state.json"
-ANALYTICS_DIR = Path("/tmp/wplace_analytics")
 # VANDAL_GRID_COLS = int(os.getenv("VANDAL_GRID_COLS", "6")) # グリッド制廃止
 # VANDAL_GRID_ROWS = int(os.getenv("VANDAL_GRID_ROWS", "6")) # グリッド制廃止
 # VANDAL_MAX_SAMPLES_PER_LOOP = max(1, VANDAL_GRID_COLS * VANDAL_GRID_ROWS) # グリッド制廃止
@@ -72,22 +69,10 @@ ADMIN_API_TOKEN = os.getenv("ADMIN_API_TOKEN")
 VANDAL_RECENT_WINDOW_SECONDS = float(os.getenv("VANDAL_RECENT_WINDOW_SECONDS", "300"))
 VANDAL_RECENT_PIXEL_THRESHOLD = int(os.getenv("VANDAL_RECENT_PIXEL_THRESHOLD", "5"))
 VANDAL_PIXEL_MAX_AGE_SECONDS = float(os.getenv("VANDAL_PIXEL_MAX_AGE_SECONDS", "12"))
-VANDAL_DETECTED_LOG_LIMIT = int(os.getenv("VANDAL_DETECTED_LOG_LIMIT", "400"))
 
 PIXEL_DIFF_RGB_THRESHOLD = int(os.getenv("PIXEL_DIFF_RGB_THRESHOLD", "0")) # 厳密に差分を検知
 PIXEL_DIFF_ALPHA_THRESHOLD = int(os.getenv("PIXEL_DIFF_ALPHA_THRESHOLD", "0")) # 厳密に差分を検知
 logging.info(f"[VANDAL_CONFIG] VANDAL_RECENT_PIXEL_THRESHOLD loaded as: {VANDAL_RECENT_PIXEL_THRESHOLD}")
-
-try:
-    ANALYTICS_DIR.mkdir(parents=True, exist_ok=True)
-except Exception as exc:
-    logging.warning(f"[ANALYTICS] Failed to ensure analytics dir: {exc}")
-
-try:
-    VANDAL_EVENT_LOGGER = VandalEventLogger(ANALYTICS_DIR)
-except Exception as exc:  # pragma: no cover
-    logging.error(f"[ANALYTICS] Failed to initialize event logger: {exc}")
-    VANDAL_EVENT_LOGGER = None
 
 # ------------------ Utils (must be top-level for multiprocessing) ------------------
 
@@ -279,7 +264,6 @@ class PixelActivityTracker:
         self.worker_task: Optional[asyncio.Task] = None
         self._last_recent_prune = 0.0
         self.painter_recent_pixels: Dict[str, deque] = defaultdict(deque)
-        self.event_logger = VANDAL_EVENT_LOGGER
         if self.user_data_path.parent and not self.user_data_path.parent.exists():
             self.user_data_path.parent.mkdir(parents=True, exist_ok=True)
         if self.pixel_state_path.parent and not self.pixel_state_path.parent.exists():
@@ -376,7 +360,6 @@ class PixelActivityTracker:
 
         enqueued_vandals: List[Tuple[int, int]] = []
         enqueued_restores: List[Tuple[int, int]] = []
-        snapshot_coords: Optional[Set[Tuple[int, int]]] = None
 
         async with self.lock:
             # 以前は荒らしだったが、現在は差分がないピクセル = 修復されたピクセル
@@ -420,8 +403,6 @@ class PixelActivityTracker:
             candidate_pixels = diff_set - self.vandalized_pixels - self.pending_coords
             if not candidate_pixels:
                 logging.debug("[ACTIVITY] No new vandalized pixels to queue.")
-                if diff_set:
-                    snapshot_coords = set(diff_set)
             else:
                 now = time.monotonic()
                 self._prune_recent_cache(now)
@@ -449,9 +430,6 @@ class PixelActivityTracker:
             # 次回比較用に差分スナップショットを更新
             self.last_diff_snapshot = set(diff_set)
 
-        if snapshot_coords:
-            await self._log_detected_snapshot(snapshot_coords)
-
         # キューに追加
         for pixel_coord in enqueued_vandals:
             self.pending_queue.put_nowait(('vandal', pixel_coord))
@@ -461,35 +439,6 @@ class PixelActivityTracker:
 
         if enqueued_vandals or enqueued_restores:
             logging.debug(f"[ACTIVITY] Queued {len(enqueued_vandals)} vandal(s) and {len(enqueued_restores)} restore(s) for lookup (pending={self.pending_queue.qsize()}).")
-
-    async def _log_detected_snapshot(self, pixel_coords: Iterable[Tuple[int, int]]):
-        if not self.event_logger:
-            return
-
-        for idx, coord in enumerate(pixel_coords):
-            if idx >= VANDAL_DETECTED_LOG_LIMIT:
-                break
-
-            timestamp = datetime.utcnow().isoformat() + "Z"
-            payload = {
-                "painter_id": "detected",
-                "painter_name": "",
-                "alliance": "",
-                "pixel_x": int(coord[0]),
-                "pixel_y": int(coord[1]),
-                "window_seconds": VANDAL_RECENT_WINDOW_SECONDS,
-                "window_count": 0,
-                "threshold": VANDAL_RECENT_PIXEL_THRESHOLD,
-                "is_vandalized": True,
-                "total_pixels_recorded": 0,
-                "todays_pixels": 0,
-                "timestamp": timestamp,
-                "detected_only": True,
-            }
-            try:
-                await self.event_logger.log(payload)
-            except Exception as exc:  # pragma: no cover
-                logging.debug(f"[ANALYTICS] Failed to log snapshot event: {exc}")
 
     async def _fetch_and_update_activity_info(self, pixel_coord: Tuple[int, int], activity_type: str):
         """単一ピクセルの情報を取得し、ユーザーデータを更新する"""
@@ -532,26 +481,14 @@ class PixelActivityTracker:
 
         # ユーザーデータと状態を常に更新（ピクセル数をカウント）
         async with self.lock:
-            count, daily_count = await self._update_user_data(
+            await self._update_user_data(
                 painter_id_str, painter, pixel_coord, activity_type
             )
 
         # 荒らし活動の場合のみ、閾値チェックと永続化を行う
         if activity_type == 'vandal':
             # 閾値を超えたかどうかをチェック
-            is_vandal, window_count, threshold = self._painter_threshold_state(painter_id_str)
-
-            await self._log_pixel_event(
-                painter_id=painter_id_str,
-                painter=painter,
-                pixel_coord=pixel_coord,
-                window_count=window_count,
-                threshold=threshold,
-                is_vandal=is_vandal,
-                total_pixels=count,
-                todays_pixels=daily_count,
-                activity_type=activity_type,
-            )
+            is_vandal, _, _ = self._painter_threshold_state(painter_id_str)
 
             if not is_vandal:
                 logging.debug(
@@ -580,18 +517,6 @@ class PixelActivityTracker:
             return True
 
         elif activity_type == 'restore':
-            # 修復活動のログを記録
-            await self._log_pixel_event(
-                painter_id=painter_id_str,
-                painter=painter,
-                pixel_coord=pixel_coord,
-                window_count=0, # 修復には閾値がないため0
-                threshold=0,    # 同上
-                is_vandal=False,
-                total_pixels=count,
-                todays_pixels=daily_count,
-                activity_type=activity_type,
-            )
             # 修復カウントを反映した最新状態を保存する
             async with self.lock:
                 await self._save_locked()
@@ -599,45 +524,6 @@ class PixelActivityTracker:
             return True
 
         return False
-
-    async def _log_pixel_event(
-        self,
-        painter_id: str,
-        painter: Dict[str, Any],
-        pixel_coord: Tuple[int, int],
-        window_count: int,
-        threshold: int,
-        is_vandal: bool,
-        total_pixels: int,
-        todays_pixels: int,
-        activity_type: str,
-    ) -> None:
-        """Persist per-pixel events for downstream analytics."""
-        if not self.event_logger:
-            return
-
-        event_payload = {
-            "painter_id": painter_id,
-            "painter_name": painter.get("name") or "",
-            "alliance": painter.get("allianceName") or "",
-            "pixel_x": int(pixel_coord[0]),
-            "pixel_y": int(pixel_coord[1]),
-            "window_seconds": VANDAL_RECENT_WINDOW_SECONDS,
-            "window_count": window_count,
-            "threshold": threshold,
-            "is_vandalized": activity_type == 'vandal' and is_vandal,
-            "is_restored": activity_type == 'restore',
-            "total_vandal_pixels": total_pixels if activity_type == 'vandal' else self.data.get(painter_id, {}).get('vandal_count', 0),
-            "total_restored_pixels": total_pixels if activity_type == 'restore' else self.data.get(painter_id, {}).get('restored_count', 0),
-            "todays_vandal_pixels": todays_pixels if activity_type == 'vandal' else self.data.get(painter_id, {}).get('daily_vandal_counts', {}).get(datetime.utcnow().strftime("%Y-%m-%d"), 0),
-            "todays_restored_pixels": todays_pixels if activity_type == 'restore' else self.data.get(painter_id, {}).get('daily_restored_counts', {}).get(datetime.utcnow().strftime("%Y-%m-%d"), 0),
-            "timestamp": datetime.utcnow().replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z"),
-        }
-
-        try:
-            await self.event_logger.log(event_payload)
-        except Exception as exc:  # pragma: no cover
-            logging.debug(f"[ANALYTICS] Failed to log event: {exc}")
 
     async def _pixel_still_differs(self, pixel_coord: Tuple[int, int]) -> Optional[bool]:
         """最新タイルを確認し、まだ差分があるかを検証する。"""
