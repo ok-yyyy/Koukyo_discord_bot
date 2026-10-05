@@ -55,21 +55,6 @@ func (h *Handler) SendStartupNotification(s *discordgo.Session) {
 			log.Printf("Error sending startup embed to guild %s: %v", guildID, err)
 		}
 
-		// 省電力モード通知（環境変数で判定）
-		if h.monitor != nil && h.monitor.State.IsPowerSaveMode() {
-			powerSaveEmbed := &discordgo.MessageEmbed{
-				Title:       "🌙 省電力モード",
-				Description: "差分率0%が継続したため、省電力モードに切り替えました。更新を一時停止しています。",
-				Color:       0x888888,
-				Footer:      &discordgo.MessageEmbedFooter{Text: "差分が検出されると通常運転に戻ります"},
-			}
-			_, err = s.ChannelMessageSendEmbed(channelID, powerSaveEmbed)
-			if err != nil {
-				log.Printf("Error sending power-save embed to guild %s: %v", guildID, err)
-			}
-			continue // 省電力モード時はnow embedは送信しない
-		}
-
 		// 現在の監視情報を送信（データがある場合）
 		if h.monitor != nil && h.monitor.State.HasData() {
 			nowEmbed := embeds.BuildNowEmbed(h.monitor)

@@ -41,3 +41,33 @@ func TestGetDiffHistorySkipsZeroTimestamp(t *testing.T) {
 		}
 	}
 }
+
+func TestShouldRecordHistoryThinsSustainedZeroDiff(t *testing.T) {
+	t.Parallel()
+
+	ms := NewMonitorState()
+	defer ms.StopHeatmapWorker()
+	base := time.Now()
+	record := func(offset time.Duration, pct float64) bool {
+		return ms.shouldRecordHistoryLocked(&MonitorData{Timestamp: base.Add(offset), DiffPercentage: pct})
+	}
+
+	if !record(0, 0) {
+		t.Fatalf("first zero-diff record must be stored")
+	}
+	if record(10*time.Second, 0) {
+		t.Fatalf("zero-diff record within the interval must be skipped")
+	}
+	if !record(zeroDiffHistoryInterval, 0) {
+		t.Fatalf("zero-diff record must be stored once the interval elapsed")
+	}
+	if !record(zeroDiffHistoryInterval+time.Second, 1.5) {
+		t.Fatalf("non-zero record must always be stored")
+	}
+	if !record(zeroDiffHistoryInterval+2*time.Second, 2.0) {
+		t.Fatalf("consecutive non-zero records must always be stored")
+	}
+	if !record(zeroDiffHistoryInterval+3*time.Second, 0) {
+		t.Fatalf("return to zero must be stored immediately")
+	}
+}
