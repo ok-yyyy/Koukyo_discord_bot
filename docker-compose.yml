@@ -28,7 +28,6 @@ services:
     depends_on:
       - monitor
     restart: unless-stopped
-    environment:
     logging:
       driver: "json-file"
       options:
