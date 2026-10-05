@@ -44,22 +44,8 @@ func (n *Notifier) StartMonitoring() {
 				continue
 			}
 
-			currentPowerSave := n.monitor.State.IsPowerSaveMode()
-			if n.lastPowerSaveMode && !currentPowerSave {
-				// Reset small-diff editable message pointers so post-resume updates
-				// don't edit stale messages that sit above the resume notification.
-				n.resetAllSmallDiffMessageTracking()
-				// For debugging: notify resume, but never block the monitoring loop.
-				go n.notifyPowerSaveResume()
-			}
-			if !n.lastPowerSaveMode && currentPowerSave {
-				// Entering power-save also resets pointers to avoid cross-cycle edits.
-				n.resetAllSmallDiffMessageTracking()
-			}
-			n.lastPowerSaveMode = currentPowerSave
-
-			if currentPowerSave {
-				continue
+			if data := n.monitor.GetLatestData(); data != nil {
+				n.trackZeroDiffForSmallDiffReset(isZeroDiff(data.DiffPercentage), time.Now())
 			}
 
 			// Botが参加している全サーバーをチェック
@@ -106,19 +92,22 @@ func (n *Notifier) StartMonitoring() {
 	log.Println("Notification monitoring started")
 }
 
-func (n *Notifier) notifyPowerSaveResume() {
-	for _, guild := range n.session.State.Guilds {
-		gs := n.settings.GetGuildSettings(guild.ID)
-		if !gs.AutoNotifyEnabled || gs.NotificationChannel == nil {
-			continue
-		}
-		_, err := n.session.ChannelMessageSend(
-			*gs.NotificationChannel,
-			"🌅 省電力モードを解除しました。更新を再開します。",
-		)
-		if err != nil {
-			log.Printf("Failed to send power-save resume notification to guild %s: %v", guild.ID, err)
-		}
+// trackZeroDiffForSmallDiffReset resets small-diff editable message pointers once
+// the diff has stayed at 0% for smallDiffTrackingResetAfter, so the next small-diff
+// event posts a fresh message instead of editing a stale one buried in the channel.
+func (n *Notifier) trackZeroDiffForSmallDiffReset(isZero bool, now time.Time) {
+	if !isZero {
+		n.zeroDiffSince = time.Time{}
+		n.smallDiffTrackingReset = false
+		return
+	}
+	if n.zeroDiffSince.IsZero() {
+		n.zeroDiffSince = now
+		return
+	}
+	if !n.smallDiffTrackingReset && now.Sub(n.zeroDiffSince) >= smallDiffTrackingResetAfter {
+		n.resetAllSmallDiffMessageTracking()
+		n.smallDiffTrackingReset = true
 	}
 }
 

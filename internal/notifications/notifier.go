@@ -39,7 +39,8 @@ type Notifier struct {
 	states                   map[string]*NotificationState
 	mu                       sync.RWMutex
 	lastTimelapseCompletedAt *time.Time
-	lastPowerSaveMode        bool
+	zeroDiffSince            time.Time
+	smallDiffTrackingReset   bool
 	timelapsePostMu          sync.Mutex
 	timelapsePosting         bool
 	dispatchHigh             chan dispatchFunc
@@ -208,6 +209,10 @@ const smallDiffPixelLimit = 10
 
 const smallDiffMinUpdateInterval = 5 * time.Second
 
+// smallDiffTrackingResetAfter is how long the diff must stay at 0% before the
+// small-diff editable message pointers are dropped.
+const smallDiffTrackingResetAfter = 10 * time.Minute
+
 const diffUserSummaryTopN = 5
 
 func (n *Notifier) upsertSmallDiffMessage(channelID string, state *NotificationState, content string, force bool) {
@@ -347,7 +352,7 @@ func (n *Notifier) CheckAndNotify(guildID string) {
 
 	// 監視データを取得
 	data := n.monitor.GetLatestData()
-	if data == nil || n.monitor.State.IsPowerSaveMode() {
+	if data == nil {
 		return
 	}
 
@@ -843,7 +848,7 @@ func (n *Notifier) sendZeroRecoveryNotification(
 		},
 		Timestamp: time.Now().Format(time.RFC3339),
 		Footer: &discordgo.MessageEmbedFooter{
-			Text: "自動通知システム - 省電力モード解除",
+			Text: "自動通知システム",
 		},
 	}
 
