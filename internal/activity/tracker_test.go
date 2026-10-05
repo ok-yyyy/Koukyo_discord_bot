@@ -83,27 +83,27 @@ func TestGetCurrentDiffPainterCounts(t *testing.T) {
 	}
 }
 
-func TestPowerSaveInferenceLifecycle(t *testing.T) {
+func TestInferenceLifecycle(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 2, 20, 12, 0, 0, 0, time.UTC)
-	var state powerSaveInferenceState
+	var state inferenceState
 
-	if armed := armPowerSaveInference(&state, 1, now); armed {
+	if armed := armInference(&state, 1, now); armed {
 		t.Fatal("inference should not arm for single pixel")
 	}
 	if state.Active {
 		t.Fatal("state should remain inactive")
 	}
 
-	if armed := armPowerSaveInference(&state, 8, now); !armed {
+	if armed := armInference(&state, 8, now); !armed {
 		t.Fatal("expected inference to be armed")
 	}
 	if !state.Active || state.RemainingPixels != 8 {
 		t.Fatalf("unexpected armed state: %+v", state)
 	}
 
-	active, effective, credit := beginPowerSaveInference(&state, "1001", now.Add(2*time.Second))
+	active, effective, credit := beginInference(&state, "1001", now.Add(2*time.Second))
 	if !active {
 		t.Fatal("inference should be active")
 	}
@@ -111,19 +111,19 @@ func TestPowerSaveInferenceLifecycle(t *testing.T) {
 		t.Fatalf("unexpected begin result effective=%s credit=%d", effective, credit)
 	}
 
-	consumePowerSaveInference(&state)
+	consumeInference(&state)
 	if state.RemainingPixels != 7 {
 		t.Fatalf("remaining should decrement to 7, got %d", state.RemainingPixels)
 	}
 
 	// Subsequent detections are still attributed to the first claimed painter.
-	active, effective, credit = beginPowerSaveInference(&state, "2002", now.Add(3*time.Second))
+	active, effective, credit = beginInference(&state, "2002", now.Add(3*time.Second))
 	if !active || effective != "1001" || credit != 0 {
 		t.Fatalf("unexpected aliasing result active=%v effective=%s credit=%d", active, effective, credit)
 	}
 
 	state.ExpiresAt = now.Add(-time.Second)
-	active, _, _ = beginPowerSaveInference(&state, "1001", now)
+	active, _, _ = beginInference(&state, "1001", now)
 	if active {
 		t.Fatal("expired inference should not stay active")
 	}
@@ -146,8 +146,8 @@ func TestRecordRecentEventsCapped(t *testing.T) {
 func TestClearInferenceProbeOnFetchFailure(t *testing.T) {
 	t.Parallel()
 
-	vandal := powerSaveInferenceState{Active: true, ProbeQueued: true}
-	restore := powerSaveInferenceState{Active: true, ProbeQueued: true}
+	vandal := inferenceState{Active: true, ProbeQueued: true}
+	restore := inferenceState{Active: true, ProbeQueued: true}
 
 	clearInferenceProbeOnFetchFailure(&vandal, &restore)
 
@@ -162,8 +162,8 @@ func TestClearInferenceProbeOnFetchFailure(t *testing.T) {
 func TestClearInferenceProbeOnFetchFailureKeepsClaimedProbeState(t *testing.T) {
 	t.Parallel()
 
-	vandal := powerSaveInferenceState{Active: true, ProbeQueued: true, ClaimedPainter: "1001"}
-	restore := powerSaveInferenceState{Active: true, ProbeQueued: true, ClaimedPainter: "2002"}
+	vandal := inferenceState{Active: true, ProbeQueued: true, ClaimedPainter: "1001"}
+	restore := inferenceState{Active: true, ProbeQueued: true, ClaimedPainter: "2002"}
 
 	clearInferenceProbeOnFetchFailure(&vandal, &restore)
 
@@ -217,7 +217,6 @@ func TestUpdateDiffImageInferenceQueuesSingleProbe(t *testing.T) {
 		Height:        2,
 	}, nil, "")
 
-	tracker.ArmPowerSaveResumeInference(3)
 	first := mustEncodeDiffPNG(t, map[[2]int]bool{
 		{0, 0}: true,
 		{1, 0}: true,
@@ -232,10 +231,10 @@ func TestUpdateDiffImageInferenceQueuesSingleProbe(t *testing.T) {
 	}
 
 	tracker.mu.Lock()
-	if !tracker.powerSaveInference.ProbeQueued {
+	if !tracker.vandalInference.ProbeQueued {
 		t.Fatalf("expected ProbeQueued=true after first update")
 	}
-	if got := tracker.powerSaveInference.RemainingPixels; got != 3 {
+	if got := tracker.vandalInference.RemainingPixels; got != 3 {
 		t.Fatalf("expected remaining inference pixels 3, got %d", got)
 	}
 	tracker.mu.Unlock()
@@ -254,7 +253,7 @@ func TestUpdateDiffImageInferenceQueuesSingleProbe(t *testing.T) {
 		t.Fatalf("expected still 1 queued probe after second update, got %d", got)
 	}
 	tracker.mu.Lock()
-	if got := tracker.powerSaveInference.RemainingPixels; got != 4 {
+	if got := tracker.vandalInference.RemainingPixels; got != 4 {
 		t.Fatalf("expected remaining inference pixels to track current diff(4), got %d", got)
 	}
 	tracker.mu.Unlock()
@@ -280,7 +279,7 @@ func TestUpdateDiffImageInferenceAutoArmsOnMonotonicGrowth(t *testing.T) {
 	}
 
 	tracker.mu.Lock()
-	if tracker.powerSaveInference.Active {
+	if tracker.vandalInference.Active {
 		t.Fatalf("inference should not auto-arm for added=1")
 	}
 	tracker.mu.Unlock()
@@ -295,16 +294,16 @@ func TestUpdateDiffImageInferenceAutoArmsOnMonotonicGrowth(t *testing.T) {
 	}
 
 	tracker.mu.Lock()
-	if !tracker.powerSaveInference.Active {
+	if !tracker.vandalInference.Active {
 		t.Fatalf("expected inference auto-arm on monotonic growth")
 	}
-	if !tracker.powerSaveInference.ProbeQueued {
+	if !tracker.vandalInference.ProbeQueued {
 		t.Fatalf("expected single probe to be queued")
 	}
-	if got := tracker.powerSaveInference.BaselinePixels; got != 1 {
+	if got := tracker.vandalInference.BaselinePixels; got != 1 {
 		t.Fatalf("expected baseline pixels=1, got %d", got)
 	}
-	if got := tracker.powerSaveInference.RemainingPixels; got != 2 {
+	if got := tracker.vandalInference.RemainingPixels; got != 2 {
 		t.Fatalf("expected remaining inferred pixels=2, got %d", got)
 	}
 	tracker.mu.Unlock()
@@ -322,7 +321,6 @@ func TestUpdateDiffImageInferenceResetsWhenRestoreAppears(t *testing.T) {
 		Height:        3,
 	}, nil, "")
 
-	tracker.ArmPowerSaveResumeInference(3)
 	first := mustEncodeDiffPNG(t, map[[2]int]bool{
 		{0, 0}: true,
 		{1, 0}: true,
@@ -333,7 +331,7 @@ func TestUpdateDiffImageInferenceResetsWhenRestoreAppears(t *testing.T) {
 	}
 
 	tracker.mu.Lock()
-	if !tracker.powerSaveInference.Active {
+	if !tracker.vandalInference.Active {
 		t.Fatalf("expected inference active after first update")
 	}
 	tracker.mu.Unlock()
@@ -348,7 +346,7 @@ func TestUpdateDiffImageInferenceResetsWhenRestoreAppears(t *testing.T) {
 	}
 
 	tracker.mu.Lock()
-	if tracker.powerSaveInference.Active {
+	if tracker.vandalInference.Active {
 		t.Fatalf("expected inference reset when restore appears")
 	}
 	tracker.mu.Unlock()
@@ -448,6 +446,44 @@ func TestUpdateDiffImageRestoreInferenceResetsWhenVandalAppears(t *testing.T) {
 		t.Fatalf("expected restore inference reset when added diff appears")
 	}
 	tracker.mu.Unlock()
+}
+
+func TestUpdateDiffImageUnchangedDiffDoesNotMarkDirty(t *testing.T) {
+	t.Parallel()
+
+	tracker := NewTracker(Config{Width: 2, Height: 2}, nil, "")
+	clearDirty := func() {
+		tracker.mu.Lock()
+		tracker.dirtyVandalState = false
+		tracker.dirtyDailyCounts = false
+		tracker.mu.Unlock()
+	}
+	dirty := func() (bool, bool) {
+		tracker.mu.Lock()
+		defer tracker.mu.Unlock()
+		return tracker.dirtyVandalState, tracker.dirtyDailyCounts
+	}
+
+	empty := mustEncodeDiffPNG(t, nil)
+	if err := tracker.UpdateDiffImage(empty); err != nil {
+		t.Fatalf("UpdateDiffImage(empty) returned error: %v", err)
+	}
+	clearDirty()
+
+	if err := tracker.UpdateDiffImage(empty); err != nil {
+		t.Fatalf("UpdateDiffImage(empty again) returned error: %v", err)
+	}
+	if vandal, daily := dirty(); vandal || daily {
+		t.Fatalf("unchanged diff must not mark state dirty: vandal=%v daily=%v", vandal, daily)
+	}
+
+	changed := mustEncodeDiffPNG(t, map[[2]int]bool{{0, 0}: true})
+	if err := tracker.UpdateDiffImage(changed); err != nil {
+		t.Fatalf("UpdateDiffImage(changed) returned error: %v", err)
+	}
+	if vandal, daily := dirty(); !vandal || !daily {
+		t.Fatalf("changed diff must mark state dirty: vandal=%v daily=%v", vandal, daily)
+	}
 }
 
 func mustEncodeDiffPNG(t *testing.T, pixels map[[2]int]bool) []byte {

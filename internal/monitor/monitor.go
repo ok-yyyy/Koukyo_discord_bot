@@ -141,7 +141,7 @@ func (m *Monitor) SetActivityTracker(tracker *activity.Tracker) {
 }
 
 // EnqueueDiffImageToTracker forwards a diff PNG to the activity tracker.
-// Skipped when tracker is nil or power-save mode is active (mirrors WebSocket path).
+// Skipped when tracker is nil.
 func (m *Monitor) EnqueueDiffImageToTracker(diffPNG []byte) {
 	if m == nil || len(diffPNG) == 0 {
 		return
@@ -149,7 +149,7 @@ func (m *Monitor) EnqueueDiffImageToTracker(diffPNG []byte) {
 	m.mu.RLock()
 	tracker := m.tracker
 	m.mu.RUnlock()
-	if tracker == nil || m.State.IsPowerSaveMode() {
+	if tracker == nil {
 		return
 	}
 	tracker.EnqueueDiffImage(diffPNG)
@@ -540,9 +540,7 @@ func (m *Monitor) pollFallbackLoop() {
 				continue
 			}
 
-			wasPowerSave := m.State.IsPowerSaveMode()
 			m.State.UpdateData(data)
-			m.armPowerSaveInferenceOnResume(wasPowerSave, data)
 			m.pollMu.Lock()
 			m.pollAttempts = 0
 			m.pollNextAttemptAt = time.Now().Add(m.pollBaseInterval)
@@ -624,28 +622,13 @@ func (m *Monitor) handleTextMessage(message []byte) error {
 
 	if payload.hasMonitoringData() {
 		data := payload.toMonitorData()
-		wasPowerSave := m.State.IsPowerSaveMode()
 		m.State.UpdateData(data)
-		m.armPowerSaveInferenceOnResume(wasPowerSave, data)
 		monitorDebugf("Updated: Diff=%.2f%%, Weighted=%.2f%%",
 			data.DiffPercentage,
 			getWeightedValue(data.WeightedDiffPercentage))
 	}
 
 	return nil
-}
-
-func (m *Monitor) armPowerSaveInferenceOnResume(wasPowerSave bool, data *MonitorData) {
-	if data == nil || !wasPowerSave || m.State.IsPowerSaveMode() {
-		return
-	}
-	m.mu.RLock()
-	tracker := m.tracker
-	m.mu.RUnlock()
-	if tracker == nil {
-		return
-	}
-	tracker.ArmPowerSaveResumeInference(data.DiffPixels)
 }
 
 // handleBinaryMessage バイナリメッセージ（画像）を処理
@@ -680,7 +663,6 @@ func (m *Monitor) handleBinaryMessage(message []byte) error {
 	if m.State.LatestImages != nil {
 		current = *m.State.LatestImages
 	}
-	powerSave := m.State.PowerSaveMode
 	m.State.mu.RUnlock()
 
 	updated := false
@@ -708,10 +690,8 @@ func (m *Monitor) handleBinaryMessage(message []byte) error {
 		current.DiffImage = payloadCopy
 		current.Timestamp = now
 		updated = true
-		if tracker != nil && !powerSave {
+		if tracker != nil {
 			tracker.EnqueueDiffImage(payloadCopy)
-		} else if tracker != nil {
-			monitorDebugf("activity tracker skipped: power_save_mode=true")
 		}
 		// 最初の16バイトをログに出力してフォーマットを確認
 		if len(payloadCopy) >= 16 {

@@ -79,7 +79,7 @@ cmd/bot/main.go
 - Embed ではなくテキストを 1件編集し続ける
 - 形式: `- (tileX-tileY-pixelX-pixelY:URL)`
 - URL は `/me` 系と同じ高倍率ロジックを利用
-- 省電力モード入退出時に編集先メッセージ追跡をリセット
+- 差分率 0% が 10 分継続すると編集先メッセージ追跡をリセット
 
 ### Standalone フォールバック
 
@@ -146,7 +146,7 @@ WS が 1 分以上断線した場合（または `MONITOR_FORCE_STANDALONE=1`）
 
 ### vandal 推定の内部状態
 
-- `powerSaveInference` が状態を保持
+- `vandalInference` が状態を保持
 - `Baseline` は推定開始時点の diff スナップショット
 - クレジット対象は `currentDiff - Baseline`
 

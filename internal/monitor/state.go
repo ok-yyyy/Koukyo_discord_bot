@@ -18,6 +18,8 @@ const (
 	timelapseFrameLimit = 512
 	// zeroDiffEpsilon 0%判定の許容幅
 	zeroDiffEpsilon = 0.005
+	// zeroDiffHistoryInterval 0%継続中に差分履歴を保存する間隔
+	zeroDiffHistoryInterval = 1 * time.Minute
 )
 
 // MonitorData WebSocketから受信する監視データ
@@ -52,8 +54,7 @@ type MonitorState struct {
 	DiffHistoryCount     int
 	WeightedHistoryCount int
 	ReferencePixels      ReferencePixels
-	PowerSaveMode        bool
-	ZeroDiffStartTime    *time.Time
+	lastZeroHistoryAt    time.Time
 	// Timelapse recording
 	TimelapseActive      bool
 	TimelapseFrames      *ring.Ring
@@ -124,7 +125,6 @@ func NewMonitorState() *MonitorState {
 	ms := &MonitorState{
 		DiffHistory:         ring.New(historyLimit),
 		WeightedDiffHistory: ring.New(historyLimit),
-		PowerSaveMode:       false,
 		heatmapQueue:        make(chan []byte, 1),
 		heatmapCancelFunc:   cancel,
 		DailySummaries:      make(map[string]DailySummary),
@@ -160,26 +160,8 @@ func (ms *MonitorState) UpdateData(data *MonitorData) {
 		ms.ReferencePixels.Total = data.TotalPixels
 	}
 
-	// ゼロ差分の追跡
-	if isZeroDiff(data.DiffPercentage) {
-		if ms.ZeroDiffStartTime == nil {
-			now := time.Now()
-			ms.ZeroDiffStartTime = &now
-		} else if !ms.PowerSaveMode {
-			elapsed := time.Since(*ms.ZeroDiffStartTime)
-			if elapsed >= 10*time.Minute {
-				ms.PowerSaveMode = true
-			}
-		}
-	} else {
-		if ms.PowerSaveMode {
-			ms.PowerSaveMode = false
-		}
-		ms.ZeroDiffStartTime = nil
-	}
-
-	// 差分履歴の追加（省電力中は保存しない）
-	if !ms.PowerSaveMode {
+	// 差分履歴の追加（0%継続中は間引いて保存する）
+	if ms.shouldRecordHistoryLocked(data) {
 		ms.DiffHistory.Value = DiffRecord{
 			Timestamp:  data.Timestamp,
 			Percentage: data.DiffPercentage,
@@ -267,14 +249,6 @@ func (ms *MonitorState) UpdateImages(images *ImageData) {
 		}
 	}
 	ms.mu.Unlock()
-
-	// 省電力モードチェック
-	ms.mu.RLock()
-	isPowerSave := ms.PowerSaveMode
-	ms.mu.RUnlock()
-	if isPowerSave {
-		return
-	}
 
 	// Heatmap集計はワーカーで最新のみ処理
 	if images != nil && len(images.DiffImage) > 0 {
@@ -394,18 +368,18 @@ func (ms *MonitorState) GetLatestData() *MonitorData {
 	return &data
 }
 
-// IsPowerSaveMode reports whether power-save mode is enabled.
-func (ms *MonitorState) IsPowerSaveMode() bool {
-	ms.mu.RLock()
-	defer ms.mu.RUnlock()
-	return ms.PowerSaveMode
-}
-
-// SetPowerSaveMode updates the power-save mode flag.
-func (ms *MonitorState) SetPowerSaveMode(enabled bool) {
-	ms.mu.Lock()
-	ms.PowerSaveMode = enabled
-	ms.mu.Unlock()
+// shouldRecordHistoryLocked 差分履歴に保存するか判定する。
+// 0%が続く間は履歴が0%で埋まらないよう zeroDiffHistoryInterval ごとに間引く。
+func (ms *MonitorState) shouldRecordHistoryLocked(data *MonitorData) bool {
+	if !isZeroDiff(data.DiffPercentage) {
+		ms.lastZeroHistoryAt = time.Time{}
+		return true
+	}
+	if !ms.lastZeroHistoryAt.IsZero() && data.Timestamp.Sub(ms.lastZeroHistoryAt) < zeroDiffHistoryInterval {
+		return false
+	}
+	ms.lastZeroHistoryAt = data.Timestamp
+	return true
 }
 
 // GetTimelapseCompletedAt returns a copy of the last timelapse completion time.

@@ -27,10 +27,6 @@ func (n *Notifier) CheckAndNotifyDM() {
 	if n == nil || n.session == nil || n.settings == nil || n.monitor == nil {
 		return
 	}
-	if n.monitor.State.IsPowerSaveMode() {
-		return
-	}
-
 	data := n.monitor.GetLatestData()
 	if data == nil {
 		return

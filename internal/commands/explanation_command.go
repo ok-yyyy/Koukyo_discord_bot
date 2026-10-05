@@ -138,11 +138,11 @@ func buildExplanationEmbed(page int) *discordgo.MessageEmbed {
 				Inline: false,
 			},
 			{
-				Name: "省電力モード(power_save_mode)",
+				Name: "0%継続時の扱い",
 				Value: strings.Join([]string{
-					"- 完全0%が一定時間継続すると省電力になり、履歴保存や一部集計を止めます。",
-					"- 通知側は `PowerSaveMode=true` の間はメイン通知をスキップします。",
-					"- 復帰後は通常の差分通知ロジックに戻ります。",
+					"- 完全0%が続く間、差分履歴は1分間隔に間引いて保存します。",
+					"- 完全0%が10分継続すると、small diff 通知の編集先メッセージをリセットします。",
+					"- 通知・ヒートマップ集計・ユーザー活動の追跡は常時動作します。",
 				}, "\n"),
 				Inline: false,
 			},

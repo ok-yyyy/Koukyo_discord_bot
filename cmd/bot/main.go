@@ -66,13 +66,8 @@ func main() {
 	defer activityTracker.Stop()
 
 	// WebSocket監視の開始
-	powerSaveMode := os.Getenv("POWER_SAVE_MODE") == "1"
 	if cfg.WebSocketURL != "" {
 		globalMonitor = monitor.NewMonitor(cfg.WebSocketURL)
-		if powerSaveMode {
-			log.Println("Power-save mode enabled: setting PowerSaveMode on monitor state")
-			globalMonitor.State.SetPowerSaveMode(true)
-		}
 		globalMonitor.SetActivityTracker(activityTracker)
 
 		if err := globalMonitor.Start(); err != nil {

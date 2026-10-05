@@ -319,14 +319,6 @@ func BuildNowEmbed(mon *monitor.Monitor) *discordgo.MessageEmbed {
 		},
 	}
 
-	// 省電力モードの表示
-	if mon.State.IsPowerSaveMode() {
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   "💤 省電力モード",
-			Value:  "差分率0%を10分以上維持したため、画像更新を停止しています。",
-			Inline: false,
-		})
-	}
 	appendMainMonitorMapField(embed)
 
 	return embed
