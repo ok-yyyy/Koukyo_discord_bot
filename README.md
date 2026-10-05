@@ -18,7 +18,6 @@ MONITOR_FORCE_STANDALONE=0
 MONITOR_STANDALONE_TARGET_ID=
 MONITOR_STANDALONE_ORIGIN=1818-806-989-358
 MONITOR_STANDALONE_TEMPLATE=1818-806-989-358.png
-POWER_SAVE_MODE=0
 ```
 
 `docker-compose.yml` からは以下のように参照します:
@@ -139,7 +138,7 @@ JSON 形式は共通です:
 
 - 10px 以下の差分は Embed ではなくテキスト通知を更新（編集）して運用します。
 - 差分行は `- (tileX-tileY-pixelX-pixelY:URL)` 形式で、高倍率URL（`BuildWplaceHighDetailPixelURL`）を出力します。
-- 省電力モードの入退出時は small diff の編集先メッセージ追跡をリセットし、古いメッセージ誤編集を防止します。
+- 差分率 0% が 10 分継続すると small diff の編集先メッセージ追跡をリセットし、古いメッセージ誤編集を防止します。
 - 差分が 10px を超えると large diff 通知に遷移し、スナップショット付き通知を送信します。
 - 通知Embedには、現在差分に含まれるユーザー内訳（`user#id | xxpx`）を上位5件まで表示します。
 
@@ -171,7 +170,6 @@ JSON 形式は共通です:
 - `MONITOR_STANDALONE_TARGET_ID` (任意: WS断時/強制スタンドアローン時の自前監視で使う watch target ID。指定時のみ watch_targets を参照)
 - `MONITOR_STANDALONE_ORIGIN` (任意: watch target が解決できない場合のフォールバック座標)
 - `MONITOR_STANDALONE_TEMPLATE` (任意: watch target が解決できない場合のフォールバックテンプレート。既定: `1818-806-989-358.png`)
-- `POWER_SAVE_MODE` (任意: `1` で起動時に省電力モード)
 
 ## 時刻基準
 
