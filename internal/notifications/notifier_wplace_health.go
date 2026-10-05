@@ -32,9 +32,7 @@ type wplaceHealthState struct {
 }
 
 type wplaceHealthResponse struct {
-	Database bool   `json:"database"`
-	Up       bool   `json:"up"`
-	Uptime   string `json:"uptime"`
+	Up bool `json:"up"`
 }
 
 func (n *Notifier) startWplaceHealthLoop() {
@@ -72,14 +70,14 @@ func (n *Notifier) checkWplaceHealth(client *http.Client) {
 	n.wplaceHealth.mu.Lock()
 	defer n.wplaceHealth.mu.Unlock()
 
-	if err != nil || (resp != nil && (!resp.Up || !resp.Database)) {
+	if err != nil || (resp != nil && !resp.Up) {
 		// 失敗
 		n.wplaceHealth.consecFails++
 		// 障害開始時刻は最初の失敗から記録する（通知タイミングではなく実際の障害開始）
 		if n.wplaceHealth.outageSince.IsZero() {
 			n.wplaceHealth.outageSince = time.Now()
 		}
-		reason := wplaceFailReason(resp, err)
+		reason := wplaceFailReason(err)
 		log.Printf("wplace health check failed (%d/%d): %s",
 			n.wplaceHealth.consecFails, wplaceConsecFailsMax, reason)
 
@@ -99,14 +97,11 @@ func (n *Notifier) checkWplaceHealth(client *http.Client) {
 	}
 }
 
-func wplaceFailReason(resp *wplaceHealthResponse, err error) string {
+func wplaceFailReason(err error) string {
 	if err != nil {
 		return fmt.Sprintf("接続失敗: %v", err)
 	}
-	if !resp.Up {
-		return "サービス停止 (up: false)"
-	}
-	return "データベース異常 (database: false)"
+	return "サービス停止 (up: false)"
 }
 
 func fetchWplaceHealth(client *http.Client) (*wplaceHealthResponse, error) {
