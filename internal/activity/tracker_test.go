@@ -217,7 +217,6 @@ func TestUpdateDiffImageInferenceQueuesSingleProbe(t *testing.T) {
 		Height:        2,
 	}, nil, "")
 
-	tracker.ArmPowerSaveResumeInference(3)
 	first := mustEncodeDiffPNG(t, map[[2]int]bool{
 		{0, 0}: true,
 		{1, 0}: true,
@@ -322,7 +321,6 @@ func TestUpdateDiffImageInferenceResetsWhenRestoreAppears(t *testing.T) {
 		Height:        3,
 	}, nil, "")
 
-	tracker.ArmPowerSaveResumeInference(3)
 	first := mustEncodeDiffPNG(t, map[[2]int]bool{
 		{0, 0}: true,
 		{1, 0}: true,
@@ -448,6 +446,44 @@ func TestUpdateDiffImageRestoreInferenceResetsWhenVandalAppears(t *testing.T) {
 		t.Fatalf("expected restore inference reset when added diff appears")
 	}
 	tracker.mu.Unlock()
+}
+
+func TestUpdateDiffImageUnchangedDiffDoesNotMarkDirty(t *testing.T) {
+	t.Parallel()
+
+	tracker := NewTracker(Config{Width: 2, Height: 2}, nil, "")
+	clearDirty := func() {
+		tracker.mu.Lock()
+		tracker.dirtyVandalState = false
+		tracker.dirtyDailyCounts = false
+		tracker.mu.Unlock()
+	}
+	dirty := func() (bool, bool) {
+		tracker.mu.Lock()
+		defer tracker.mu.Unlock()
+		return tracker.dirtyVandalState, tracker.dirtyDailyCounts
+	}
+
+	empty := mustEncodeDiffPNG(t, nil)
+	if err := tracker.UpdateDiffImage(empty); err != nil {
+		t.Fatalf("UpdateDiffImage(empty) returned error: %v", err)
+	}
+	clearDirty()
+
+	if err := tracker.UpdateDiffImage(empty); err != nil {
+		t.Fatalf("UpdateDiffImage(empty again) returned error: %v", err)
+	}
+	if vandal, daily := dirty(); vandal || daily {
+		t.Fatalf("unchanged diff must not mark state dirty: vandal=%v daily=%v", vandal, daily)
+	}
+
+	changed := mustEncodeDiffPNG(t, map[[2]int]bool{{0, 0}: true})
+	if err := tracker.UpdateDiffImage(changed); err != nil {
+		t.Fatalf("UpdateDiffImage(changed) returned error: %v", err)
+	}
+	if vandal, daily := dirty(); !vandal || !daily {
+		t.Fatalf("changed diff must mark state dirty: vandal=%v daily=%v", vandal, daily)
+	}
 }
 
 func mustEncodeDiffPNG(t *testing.T, pixels map[[2]int]bool) []byte {

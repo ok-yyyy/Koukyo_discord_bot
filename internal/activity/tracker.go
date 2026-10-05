@@ -189,19 +189,6 @@ func (t *Tracker) SetNewUserCallback(cb NewUserCallback) {
 	t.newUserCB = cb
 }
 
-// ArmPowerSaveResumeInference arms the "first painter attribution" heuristic.
-// When power-save exits with a sudden multi-pixel diff, the first detected painter
-// is treated as the likely actor for those pixels.
-func (t *Tracker) ArmPowerSaveResumeInference(diffPixels int) {
-	now := time.Now().UTC()
-	t.mu.Lock()
-	armed := armPowerSaveInference(&t.powerSaveInference, diffPixels, now)
-	t.mu.Unlock()
-	if armed {
-		log.Printf("activity inference armed: diff_pixels=%d ttl=%s", diffPixels, powerSaveInferenceTTL)
-	}
-}
-
 func (t *Tracker) Start() {
 	go t.runWorker("worker", t.worker)
 	go t.runWorker("diffWorker", t.diffWorker)
@@ -360,14 +347,18 @@ func (t *Tracker) UpdateDiffImage(pngBytes []byte) error {
 	t.mu.Lock()
 	oldDiff := t.currentDiff
 	t.currentDiff = newDiff
+	pruned := 0
 	for key := range t.vandalState.PixelToPainter {
 		if _, ok := newDiff[key]; !ok {
 			delete(t.vandalState.PixelToPainter, key)
+			pruned++
 		}
 	}
+	prevVandalized := len(t.vandalState.VandalizedPixels)
 	t.vandalState.VandalizedPixels = diffPixelsToList(newDiff)
 	added, removed := countDiffChanges(oldDiff, newDiff)
 	dateKey := dateKeyJST()
+	_, hadDailyEntry := t.dailyCounts.Vandal[dateKey]
 	if t.dailyCounts.Vandal == nil {
 		t.dailyCounts.Vandal = make(map[string]int)
 	}
@@ -376,8 +367,14 @@ func (t *Tracker) UpdateDiffImage(pngBytes []byte) error {
 	}
 	t.dailyCounts.Vandal[dateKey] += added
 	t.dailyCounts.Fix[dateKey] += removed
-	t.dirtyVandalState = true
-	t.dirtyDailyCounts = true
+	// Diff images arrive continuously; only flush to disk when something changed.
+	changed := added > 0 || removed > 0
+	if changed || pruned > 0 || prevVandalized != len(newDiff) {
+		t.dirtyVandalState = true
+	}
+	if changed || !hadDailyEntry {
+		t.dirtyDailyCounts = true
+	}
 	addedPixels := make([]Pixel, 0, added)
 	for key, px := range newDiff {
 		if _, ok := oldDiff[key]; !ok {
