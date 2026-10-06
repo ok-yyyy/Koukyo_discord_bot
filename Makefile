@@ -6,13 +6,12 @@ GOCMD=go
 GOBUILD=$(GOCMD) build
 GOCLEAN=$(GOCMD) clean
 GOTEST=$(GOCMD) test
-GOGET=$(GOCMD) get
 GORUN=$(GOCMD) run
 
 # メインファイルのパス
 MAIN_PATH=./cmd/bot
 
-.PHONY: all build clean test run deps lint
+.PHONY: all build clean test run lint
 
 all: test build
 
@@ -28,9 +27,6 @@ clean:
 
 run:
 	$(GORUN) $(MAIN_PATH)
-
-deps:
-	$(GOGET) -v ./...
 
 # go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest が必要
 lint:
