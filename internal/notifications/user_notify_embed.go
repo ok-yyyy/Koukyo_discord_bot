@@ -17,8 +17,10 @@ func buildUserNotifyEmbed(title string, user activity.UserActivity, isVandal boo
 		alliance = "-"
 	}
 	count := user.VandalCount
+	color := 0xE74C3C
 	if !isVandal {
 		count = user.RestoredCount
+		color = 0x2ECC71
 	}
 	lastSeen := user.LastSeen
 	if lastSeen == "" {
@@ -34,7 +36,7 @@ func buildUserNotifyEmbed(title string, user activity.UserActivity, isVandal boo
 	}
 	embed := &discordgo.MessageEmbed{
 		Title: title,
-		Color: 0xE74C3C,
+		Color: color,
 		Fields: []*discordgo.MessageEmbedField{
 			{Name: "ユーザー", Value: name, Inline: true},
 			{Name: "同盟", Value: alliance, Inline: true},

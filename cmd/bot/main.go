@@ -20,9 +20,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// Global monitor instance
-var globalMonitor *monitor.Monitor
-
 func main() {
 	cfg := config.Load()
 	if cfg == nil {
@@ -66,11 +63,12 @@ func main() {
 	defer activityTracker.Stop()
 
 	// WebSocket監視の開始
+	var mon *monitor.Monitor
 	if cfg.WebSocketURL != "" {
-		globalMonitor = monitor.NewMonitor(cfg.WebSocketURL)
-		globalMonitor.SetActivityTracker(activityTracker)
+		mon = monitor.NewMonitor(cfg.WebSocketURL)
+		mon.SetActivityTracker(activityTracker)
 
-		if err := globalMonitor.Start(); err != nil {
+		if err := mon.Start(); err != nil {
 			log.Printf("Failed to start monitor: %v", err)
 			log.Println("Continuing without monitor...")
 		} else {
@@ -96,8 +94,8 @@ func main() {
 
 	// 通知システムの初期化
 	var notifier *notifications.Notifier
-	if globalMonitor != nil {
-		notifier = notifications.NewNotifier(dg, globalMonitor, settingsManager, dataDir)
+	if mon != nil {
+		notifier = notifications.NewNotifier(dg, mon, settingsManager, dataDir)
 		notifier.StartMonitoring()
 		log.Println("Notification system started")
 	}
@@ -105,7 +103,7 @@ func main() {
 		activityTracker.SetNewUserCallback(notifier.NotifyNewUser)
 	}
 
-	h := handler.NewHandler("!", botInfo, globalMonitor, settingsManager, notifier, limiter, activityLimiter, dataDir) // settingsManager を渡す
+	h := handler.NewHandler("!", botInfo, mon, settingsManager, notifier, limiter, activityLimiter, dataDir) // settingsManager を渡す
 	dg.AddHandler(h.OnReady)
 	dg.AddHandler(h.OnResumed)
 	dg.AddHandler(h.OnMessage)
@@ -127,8 +125,8 @@ func main() {
 	shutdownDone := make(chan struct{})
 	go func() {
 		h.Cleanup(dg)
-		if globalMonitor != nil {
-			globalMonitor.Stop()
+		if mon != nil {
+			mon.Stop()
 		}
 		dg.Close()
 		close(shutdownDone)

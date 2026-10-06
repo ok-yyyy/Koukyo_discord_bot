@@ -414,3 +414,7 @@ func sendUserListMessage(s *discordgo.Session, channelID, dataDir, kind, mode, l
 	})
 	return err
 }
+
+func activityScore(restored, vandal int) int {
+	return restored - vandal
+}
