@@ -7,88 +7,12 @@ import (
 )
 
 type randomRegistry struct {
-	mu       sync.Mutex
-	rnd      *rand.Rand
-	commands map[string]randomCommand
+	mu  sync.Mutex
+	rnd *rand.Rand
 }
 
 var registry = randomRegistry{
-	rnd:      rand.New(rand.NewSource(time.Now().UnixNano())),
-	commands: make(map[string]randomCommand),
-}
-
-func RegisterRandomCommand(name string, responses []string) {
-	RegisterRandomCommandWithChance(name, 100, responses)
-}
-
-func RegisterRandomCommandWithChance(name string, chancePercent float64, responses []string) {
-	if name == "" || len(responses) == 0 {
-		return
-	}
-	copied := make([]string, 0, len(responses))
-	for _, resp := range responses {
-		if resp == "" {
-			continue
-		}
-		copied = append(copied, resp)
-	}
-	if len(copied) == 0 {
-		return
-	}
-	registry.mu.Lock()
-	registry.commands[name] = randomCommand{
-		responses:     copied,
-		chancePercent: chancePercent,
-	}
-	registry.mu.Unlock()
-}
-
-func RegisterWeightedCommand(name string, choices []WeightedReply) {
-	RegisterWeightedCommandWithChance(name, 100, choices)
-}
-
-func RegisterWeightedCommandWithChance(name string, chancePercent float64, choices []WeightedReply) {
-	if name == "" || len(choices) == 0 {
-		return
-	}
-	copied := make([]WeightedReply, 0, len(choices))
-	for _, choice := range choices {
-		if choice.Reply == "" || choice.WeightPercent <= 0 {
-			continue
-		}
-		copied = append(copied, choice)
-	}
-	if len(copied) == 0 {
-		return
-	}
-	registry.mu.Lock()
-	registry.commands[name] = randomCommand{
-		weighted:      copied,
-		chancePercent: chancePercent,
-	}
-	registry.mu.Unlock()
-}
-
-func RandomReply(cmdName string) (string, bool) {
-	registry.mu.Lock()
-	command, ok := registry.commands[cmdName]
-	if !ok || (len(command.responses) == 0 && len(command.weighted) == 0) {
-		registry.mu.Unlock()
-		return "", false
-	}
-	if !shouldTriggerChanceLocked(command.chancePercent) {
-		registry.mu.Unlock()
-		return "", false
-	}
-	var reply string
-	if len(command.weighted) > 0 {
-		reply, ok = weightedChoiceLocked(command.weighted)
-	} else {
-		reply = command.responses[registry.rnd.Intn(len(command.responses))]
-		ok = true
-	}
-	registry.mu.Unlock()
-	return reply, ok
+	rnd: rand.New(rand.NewSource(time.Now().UnixNano())),
 }
 
 func ShouldTriggerChance(chancePercent float64) bool {
@@ -103,12 +27,6 @@ func WeightedChoice(choices []WeightedReply) (string, bool) {
 	reply, ok := weightedChoiceLocked(choices)
 	registry.mu.Unlock()
 	return reply, ok
-}
-
-type randomCommand struct {
-	responses     []string
-	weighted      []WeightedReply
-	chancePercent float64
 }
 
 type WeightedReply struct {

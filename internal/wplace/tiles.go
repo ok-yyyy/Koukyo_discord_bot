@@ -88,12 +88,6 @@ func detectTileURLFormat() {
 	log.Printf("⚠️ No working tile URL format detected, using default: %s", tileURLFormat)
 }
 
-func GetTileURLFormat() string {
-	urlFormatMu.RLock()
-	defer urlFormatMu.RUnlock()
-	return tileURLFormat
-}
-
 func DownloadTile(ctx context.Context, limiter *utils.RateLimiter, tileX, tileY int) ([]byte, error) {
 	return downloadTile(ctx, limiter, tileX, tileY, true)
 }

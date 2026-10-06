@@ -207,12 +207,3 @@ func interactionUserID(i *discordgo.InteractionCreate) string {
 	}
 	return user.ID
 }
-
-func meNotLinkedMessage(discordID string) string {
-	return strings.TrimSpace(fmt.Sprintf(
-		"❌ このDiscordアカウントはまだWplaceと関連付けられていません。\n"+
-			"連携確認を開始します。DMを確認してください。\n"+
-			"（Discord ID: %s）",
-		discordID,
-	))
-}

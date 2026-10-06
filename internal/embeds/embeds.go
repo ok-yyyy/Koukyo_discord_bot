@@ -5,7 +5,6 @@ import (
 	"Koukyo_discord_bot/internal/models"
 	"Koukyo_discord_bot/internal/monitor"
 	"Koukyo_discord_bot/internal/utils"
-	"Koukyo_discord_bot/internal/version"
 	"fmt"
 	"runtime"
 	"time"
@@ -34,48 +33,6 @@ func BuildInfoEmbed(botInfo *models.BotInfo) *discordgo.MessageEmbed {
 		Footer: &discordgo.MessageEmbedFooter{
 			Text: "Koukyo Discord Bot - Wplace監視システム",
 		},
-	}
-	return embed
-}
-
-// BuildBotStartupEmbed Bot起動時の通知Embedを作成
-func BuildBotStartupEmbed(botInfo *models.BotInfo) *discordgo.MessageEmbed {
-	// パッチノートをフォーマット
-	patchNotesText := "**主な更新内容**\n"
-	for _, note := range version.PatchNotes {
-		patchNotesText += fmt.Sprintf("• %s\n", note)
-	}
-
-	embed := &discordgo.MessageEmbed{
-		Title:       "皇居Bot パッチノート",
-		Description: "Botが起動・更新されました。",
-		Color:       0x2ECC71, // Green
-		Fields: []*discordgo.MessageEmbedField{
-			{
-				Name:   "📌 バージョン",
-				Value:  fmt.Sprintf("Ver. %s", version.Version),
-				Inline: false,
-			},
-			{
-				Name:   "🕐 起動時刻",
-				Value:  botInfo.StartTime.Format("2006-01-02 15:04:05"),
-				Inline: false,
-			},
-			{
-				Name:   "📝 " + "主な更新内容",
-				Value:  patchNotesText,
-				Inline: false,
-			},
-			{
-				Name:   "💬 サポート",
-				Value:  fmt.Sprintf("[Discord サポートサーバーに参加](%s)", version.SupportServerURL),
-				Inline: false,
-			},
-		},
-		Footer: &discordgo.MessageEmbedFooter{
-			Text: "Koukyo Discord Bot - Go Edition | Wplace監視システム",
-		},
-		Timestamp: time.Now().Format(time.RFC3339),
 	}
 	return embed
 }
@@ -344,23 +301,6 @@ func getConnectionStatus(mon *monitor.Monitor) string {
 		return "✅ WebSocketサーバーに接続中"
 	}
 	return "⚠️ 接続試行中..."
-}
-
-// formatNumber 数値をカンマ区切りでフォーマット
-func formatNumber(n int) string {
-	if n == 0 {
-		return "0"
-	}
-
-	s := fmt.Sprintf("%d", n)
-	var result []rune
-	for i, c := range s {
-		if i > 0 && (len(s)-i)%3 == 0 {
-			result = append(result, ',')
-		}
-		result = append(result, c)
-	}
-	return string(result)
 }
 
 // BuildStatusEmbed status コマンド用の詳細ステータス埋め込みを作成

@@ -54,27 +54,6 @@ func LngLatToTilePixel(lng, lat float64) *Coordinate {
 	}
 }
 
-// TilePixelToLngLat タイル座標とピクセル座標から経度緯度を計算
-func TilePixelToLngLat(tileX, tileY, pixelX, pixelY int) *LngLat {
-	n := float64(WplaceTilesPerEdge)
-
-	// タイルとピクセルを合わせた位置
-	xFloat := float64(tileX) + float64(pixelX)/WplaceTileSize
-	yFloat := float64(tileY) + float64(pixelY)/WplaceTileSize
-
-	// 経度
-	lng := xFloat/n*360 - 180
-
-	// 緯度（Webメルカトル投影の逆変換）
-	latRad := math.Atan(math.Sinh(math.Pi * (1 - 2*yFloat/n)))
-	lat := latRad * 180 / math.Pi
-
-	return &LngLat{
-		Lng: lng,
-		Lat: lat,
-	}
-}
-
 // TilePixelToLngLatFloat float版（ピクセル中心などで利用）
 func TilePixelToLngLatFloat(tileX, tileY int, pixelX, pixelY float64) *LngLat {
 	n := float64(WplaceTilesPerEdge)

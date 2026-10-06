@@ -28,38 +28,6 @@ func followupMessage(s *discordgo.Session, i *discordgo.InteractionCreate, msg s
 	return err
 }
 
-// sendImage 画像をDiscordに送信するヘルパー関数
-func sendImage(s *discordgo.Session, i *discordgo.InteractionCreate, imageData []byte, filename string) error {
-	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Files: []*discordgo.File{
-				{
-					Name:        filename,
-					ContentType: "image/png",
-					Reader:      bytes.NewReader(imageData),
-				},
-			},
-		},
-	})
-}
-
-func sendImageWithEmbed(s *discordgo.Session, i *discordgo.InteractionCreate, imageData []byte, filename string, embed *discordgo.MessageEmbed) error {
-	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-			Files: []*discordgo.File{
-				{
-					Name:        filename,
-					ContentType: "image/png",
-					Reader:      bytes.NewReader(imageData),
-				},
-			},
-		},
-	})
-}
-
 func sendImageFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, imageData []byte, filename string, embed *discordgo.MessageEmbed) error {
 	params := &discordgo.WebhookParams{
 		Files: []*discordgo.File{

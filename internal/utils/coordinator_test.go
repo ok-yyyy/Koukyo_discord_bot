@@ -23,12 +23,12 @@ func TestCoordinateConversion_RoundTrip(t *testing.T) {
 
 			// 2. Pixel -> LngLat (復元)
 			// Pixelの中心(0.5, 0.5)ではなく、左上(0,0)から計算して戻す場合の誤差を考慮
-			// TilePixelToLngLat は float計算をしているので、大きな誤差は出ないはずだが
+			// TilePixelToLngLatFloat は float計算をしているので、大きな誤差は出ないはずだが
 			// 入力が float(LngLat) -> int(Pixel) なので量子化誤差が出る。
 
 			// 逆変換して検証
 			// ここでは変換ロジックが破綻していないか（極端な値にならないか）を確認
-			restored := TilePixelToLngLat(coord.TileX, coord.TileY, coord.PixelX, coord.PixelY)
+			restored := TilePixelToLngLatFloat(coord.TileX, coord.TileY, float64(coord.PixelX), float64(coord.PixelY))
 
 			// 許容誤差 (度)。
 			// WplaceZoom=11 (2048 tiles * 1000px = 2,048,000 px width)
