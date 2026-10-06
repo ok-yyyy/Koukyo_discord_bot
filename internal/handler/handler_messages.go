@@ -51,8 +51,12 @@ func (h *Handler) OnMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 func (h *Handler) handleUnknownTextCommand(s *discordgo.Session, m *discordgo.MessageCreate, cmdName string) bool {
 	fallbacks := []func(*discordgo.Session, *discordgo.MessageCreate, string) bool{
-		h.handleProgressTargetManual,
-		h.handleWatchTargetManual,
+		func(_ *discordgo.Session, m *discordgo.MessageCreate, targetID string) bool {
+			return h.notifier != nil && h.notifier.HandleProgressTargetManual(m.ChannelID, targetID)
+		},
+		func(_ *discordgo.Session, m *discordgo.MessageCreate, targetID string) bool {
+			return h.notifier != nil && h.notifier.HandleWatchTargetManual(m.ChannelID, targetID)
+		},
 		h.handleGetShortcut,
 		h.handleEasterEgg,
 	}

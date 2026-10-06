@@ -35,9 +35,6 @@ func (h *Handler) handleEasterEgg(s *discordgo.Session, m *discordgo.MessageCrea
 		}
 		return true
 	}
-	if reply, ok := eastereggs.RandomReply(cmdName); ok {
-		return sendEasterEggReply(s, m.ChannelID, reply)
-	}
 	if h.dataDir == "" {
 		return false
 	}

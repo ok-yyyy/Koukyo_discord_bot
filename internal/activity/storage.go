@@ -11,16 +11,6 @@ import (
 
 var userActivityFileMu sync.Mutex
 
-func LoadUserActivityMap(dataDir string) (map[string]*UserActivity, error) {
-	if dataDir == "" {
-		return nil, fmt.Errorf("dataDir is empty")
-	}
-	path := filepath.Join(dataDir, "user_activity.json")
-	userActivityFileMu.Lock()
-	defer userActivityFileMu.Unlock()
-	return loadUserActivityMapUnlocked(path)
-}
-
 func UpdateUserActivityMap(dataDir string, update func(map[string]*UserActivity) error) error {
 	if dataDir == "" {
 		return fmt.Errorf("dataDir is empty")

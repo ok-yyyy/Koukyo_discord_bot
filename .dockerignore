@@ -1,6 +1,9 @@
 # .dockerignore
 
 # .envはイメージに含めない（docker-composeのenv_fileで渡す）
+.env
+# dataは実行時にボリュームでマウントする
+data
 .git
 .gitignore
 dist

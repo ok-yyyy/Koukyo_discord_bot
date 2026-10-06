@@ -35,8 +35,6 @@ sandbox/
 # Logs
 *.log
 
-# Dependency
-/go.sum
 data/region_database.json
 data/settings.json
 data/user_activity.json

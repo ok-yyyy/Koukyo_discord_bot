@@ -16,7 +16,6 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./monitor/data:/app/monitor/data
       - ./data/template_img:/app/template:ro
 
   discord-bot:

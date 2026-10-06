@@ -6,10 +6,9 @@ Web backend for Wplace Vandalism Monitor (Web).
 - FastAPI + WebSocket
 - Periodically fetches tiles from wplace backend, crops area defined by REF_PIXEL
 - Compares with reference image (PNG with alpha for mask) and streams base64 images + diff%
-- Designed to work with the provided wplace_monitor.html which connects to ws://<host>:8000/ws
+- Clients (the Discord bot) connect to ws://<host>:8000/ws
 
 Environment variables (optional):
-  PORT            (default: 8000)
   REF_IMAGE_PATH  (default: kiku.png)  # PNG with alpha channel as mask; same semantics as 最新版.py
   REF_PIXEL       (default: "1818,806,989,359")  # tile_x, tile_y, x_in_tile, y_in_tile
   TILE_SIZE       (default: 1000)
@@ -22,21 +21,16 @@ import time
 import logging
 import struct # Added for binary packing
 import random
-import json
 from pathlib import Path
-from typing import Tuple, List, Dict, Any, Optional, Set
+from typing import Tuple, List, Dict, Any, Optional
 from concurrent.futures import ProcessPoolExecutor
-from datetime import datetime
-from collections import deque, defaultdict
 
 import requests
-import urllib.request
-import urllib.error
 from PIL import Image
 import numpy as np
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.websockets import WebSocketState
 
@@ -45,7 +39,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # ------------------ Config ------------------
 
-PORT = int(os.getenv("PORT", "8000"))
 REF_IMAGE_PATH = os.getenv("REF_IMAGE_PATH", "kiku.png")
 REF_PIXEL_TEXT = os.getenv("REF_PIXEL", "1818,806,989,358")
 # INTERVAL_MS is now hardcoded in the broadcast loop
@@ -53,32 +46,9 @@ TILE_SIZE = int(os.getenv("TILE_SIZE", "1000"))
 TILES_BASE = os.getenv("TILES_BASE", "https://backend.wplace.live/files/s0/tiles")
 WEIGHT_MASK_PATH = os.getenv("WEIGHT_MASK_PATH", "wplace_kiku_weight_mask.webp")
 WEIGHT_DIFF_COLOR = "#7C3AED"  # purple
-PIXEL_INFO_BASE_URL = "https://backend.wplace.live/s0/pixel"
-PIXEL_INFO_RATE_LIMIT_INTERVAL = float(os.getenv("PIXEL_INFO_RATE_LIMIT_INTERVAL", "0.4"))  # default ~2.5 req/sec
-PIXEL_INFO_BACKOFF_SECONDS = float(os.getenv("PIXEL_INFO_BACKOFF_SECONDS", "2.0"))
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
-ACTIVITY_TRACKER_PATH = DATA_DIR / "user_activity.json"
-ACTIVITY_STATE_FILE = DATA_DIR / "activity_state.json"
-# VANDAL_GRID_COLS = int(os.getenv("VANDAL_GRID_COLS", "6")) # グリッド制廃止
-# VANDAL_GRID_ROWS = int(os.getenv("VANDAL_GRID_ROWS", "6")) # グリッド制廃止
-# VANDAL_MAX_SAMPLES_PER_LOOP = max(1, VANDAL_GRID_COLS * VANDAL_GRID_ROWS) # グリッド制廃止
-VANDAL_PIXEL_DEDUP_SECONDS = float(os.getenv("VANDAL_PIXEL_DEDUP_SECONDS", "60")) # これは残す (APIレートリミット用)
-VANDAL_MAX_QUEUE_SIZE = int(os.getenv("VANDAL_MAX_QUEUE_SIZE", "5000"))
-ADMIN_API_TOKEN = os.getenv("ADMIN_API_TOKEN")
-VANDAL_RECENT_WINDOW_SECONDS = float(os.getenv("VANDAL_RECENT_WINDOW_SECONDS", "300"))
-VANDAL_RECENT_PIXEL_THRESHOLD = int(os.getenv("VANDAL_RECENT_PIXEL_THRESHOLD", "5"))
-VANDAL_PIXEL_MAX_AGE_SECONDS = float(os.getenv("VANDAL_PIXEL_MAX_AGE_SECONDS", "12"))
 
-PIXEL_DIFF_RGB_THRESHOLD = int(os.getenv("PIXEL_DIFF_RGB_THRESHOLD", "0")) # 厳密に差分を検知
-PIXEL_DIFF_ALPHA_THRESHOLD = int(os.getenv("PIXEL_DIFF_ALPHA_THRESHOLD", "0")) # 厳密に差分を検知
-logging.info(f"[VANDAL_CONFIG] VANDAL_RECENT_PIXEL_THRESHOLD loaded as: {VANDAL_RECENT_PIXEL_THRESHOLD}")
 
 # ------------------ Utils (must be top-level for multiprocessing) ------------------
-
-class PixelInfoRateLimitError(Exception):
-    """Raised when the backend pixel info API returns HTTP 429."""
-    pass
 
 def safe_int_quad(text: str, default: Tuple[int, int, int, int]) -> Tuple[int, int, int, int]:
     try:
@@ -91,8 +61,6 @@ def safe_int_quad(text: str, default: Tuple[int, int, int, int]) -> Tuple[int, i
 
 DEFAULT_REF_PIXEL = (1818, 806, 989, 359)
 REF_PIXEL = safe_int_quad(REF_PIXEL_TEXT, DEFAULT_REF_PIXEL)
-REF_GLOBAL_ORIGIN_X = REF_PIXEL[0] * TILE_SIZE + REF_PIXEL[2]
-REF_GLOBAL_ORIGIN_Y = REF_PIXEL[1] * TILE_SIZE + REF_PIXEL[3]
 
 def get_image_from_url(url: str):
     try:
@@ -239,619 +207,11 @@ def build_weight_config(ref_img: Image.Image) -> Optional[Dict[str, Any]]:
 
 
 WEIGHT_CONFIG: Optional[Dict[str, Any]] = None
-REF_ALPHA_MASK: Optional[np.ndarray] = None
-PENDING_ACTIVITY_TASKS: Set[asyncio.Task] = set()
-
-
-class PixelActivityTracker:
-    """Track vandal user metadata from pixel API responses."""
-
-    def __init__(self, path: Path):
-        self.user_data_path = path # vandal_users.json
-        self.pixel_state_path = ACTIVITY_STATE_FILE # vandalized_pixels.json
-        self.rate_limit_interval = PIXEL_INFO_RATE_LIMIT_INTERVAL
-        self.lock = asyncio.Lock()
-        self.rate_lock = asyncio.Lock()
-        self.last_request_ts = 0.0
-        self.data: Dict[str, Dict[str, Any]] = {} # vandal_users.jsonの内容
-        self.vandalized_pixels: Set[Tuple[int, int]] = set() # 現在荒らされているピクセルのグローバル座標
-        self.pixel_to_painter: Dict[Tuple[int, int], str] = {} # ピクセル -> 荒らしたユーザーID
-        self.pending_queue: asyncio.Queue[Tuple[int, int]] = asyncio.Queue()
-        self.pending_coords: Set[Tuple[int, int]] = set()
-        self.recent_pixel_ts: Dict[Tuple[int, int], float] = {}
-        self.pixel_detected_at: Dict[Tuple[int, int], float] = {}
-        self.last_diff_snapshot: Set[Tuple[int, int]] = set()
-        self.worker_task: Optional[asyncio.Task] = None
-        self._last_recent_prune = 0.0
-        self.painter_recent_pixels: Dict[str, deque] = defaultdict(deque)
-        if self.user_data_path.parent and not self.user_data_path.parent.exists():
-            self.user_data_path.parent.mkdir(parents=True, exist_ok=True)
-        if self.pixel_state_path.parent and not self.pixel_state_path.parent.exists():
-            self.pixel_state_path.parent.mkdir(parents=True, exist_ok=True)
-        self._load_existing()
-
-    def _load_existing(self):
-        # user_activity.json の読み込み
-        if self.user_data_path.exists():
-            try:
-                with open(self.user_data_path, "r", encoding="utf-8") as f:
-                    payload = json.load(f)
-                    if isinstance(payload, dict):
-                        # データ移行ロジック
-                        for key, user_data in payload.items():
-                            if 'pixel_count' in user_data:
-                                user_data['vandal_count'] = user_data.pop('pixel_count', 0)
-                            if 'daily_pixel_counts' in user_data:
-                                user_data['daily_vandal_counts'] = user_data.pop('daily_pixel_counts', {})
-                            user_data.setdefault('restored_count', 0)
-                            user_data.setdefault('daily_restored_counts', {})
-                        self.data = {str(k): v for k, v in payload.items()}
-                        logging.info(f"[ACTIVITY] Loaded {len(self.data)} user entries from {self.user_data_path}")
-            except Exception as exc:
-                logging.warning(f"[ACTIVITY] Failed to load existing user data: {exc}")
-
-        # activity_state.json の読み込み
-        if self.pixel_state_path.exists():
-            try:
-                with open(self.pixel_state_path, "r", encoding="utf-8") as f:
-                    payload = json.load(f)
-                    if isinstance(payload, dict):
-                        # JSONから読み込んだリストをSetに変換
-                        self.vandalized_pixels = set(tuple(p) for p in payload.get("vandalized_pixels", []))
-                        self.pixel_to_painter = {tuple(map(int, (x.strip() for x in p.strip('()').split(',')))): painter_id for p, painter_id in payload.get("pixel_to_painter", {}).items() if p}
-                        logging.info(f"[ACTIVITY] Loaded {len(self.vandalized_pixels)} vandalized pixels from {self.pixel_state_path}")
-            except Exception as exc:
-                logging.warning(f"[ACTIVITY] Failed to load existing pixel state: {exc}")
-
-    def ensure_worker(self):
-        """Start the background worker that drains the pending pixel queue."""
-        if self.worker_task and not self.worker_task.done():
-            return
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return
-        self.worker_task = loop.create_task(self._pixel_worker())
-
-        def _on_done(task: asyncio.Task):
-            try:
-                task.result()
-            except Exception as exc:  # pragma: no cover
-                logging.error(f"[VANDAL] Pixel worker crashed: {exc}", exc_info=True)
-
-        self.worker_task.add_done_callback(_on_done)
-
-    def _prune_recent_cache(self, now: float):
-        """Remove stale deduplication entries."""
-        if now - self._last_recent_prune < VANDAL_PIXEL_DEDUP_SECONDS:
-            return
-        cutoff = now - (VANDAL_PIXEL_DEDUP_SECONDS * 2)
-        stale_keys = [coord for coord, ts in self.recent_pixel_ts.items() if ts < cutoff]
-        for coord in stale_keys:
-            self.recent_pixel_ts.pop(coord, None)
-        self._last_recent_prune = now
-
-    def _painter_threshold_state(self, painter_id: str) -> Tuple[bool, int, int]:
-        now = time.monotonic()
-        dq = self.painter_recent_pixels[painter_id]
-        cutoff = now - VANDAL_RECENT_WINDOW_SECONDS
-        while dq and dq[0] < cutoff:
-            dq.popleft()
-
-        current_count = len(dq)
-        threshold = VANDAL_RECENT_PIXEL_THRESHOLD
-        # Check if the incoming pixel meets or exceeds the threshold
-        is_exceeded = (current_count + 1) >= threshold
-        dq.append(now)
-        window_count = len(dq)
-
-        logging.debug(
-            f"[VANDAL_DEBUG] Checking painter {painter_id}: "
-            f"current_count={current_count}, threshold={threshold}, "
-            f"is_exceeded={is_exceeded}"
-        )
-
-        return is_exceeded, window_count, threshold
-
-    async def process_diff_pixels(self, global_diff_pixels: List[Tuple[int, int]], current_ref_img_mask: np.ndarray, base_global_x: int, base_global_y):
-        """差分ピクセルを荒らし・修復に分類し、バックグラウンドワーカー用キューに投入する。"""
-        self.ensure_worker()
-        diff_set = {(int(px), int(py)) for px, py in global_diff_pixels}
-
-        enqueued_vandals: List[Tuple[int, int]] = []
-        enqueued_restores: List[Tuple[int, int]] = []
-
-        async with self.lock:
-            # 以前は荒らしだったが、現在は差分がないピクセル = 修復されたピクセル
-            logging.debug(f"[DEBUG] Before restoration check - vandalized_pixels: {self.vandalized_pixels}, diff_set: {diff_set}")
-            restored_pixels = self.vandalized_pixels - diff_set
-            if restored_pixels:
-                logging.debug(f"[DEBUG] Identified restored_pixels: {restored_pixels}")
-                for pixel_coord in restored_pixels:
-                    self.vandalized_pixels.discard(pixel_coord)
-                    self.pixel_to_painter.pop(pixel_coord, None)
-                    self.pixel_detected_at.pop(pixel_coord, None)
-                    if pixel_coord not in self.pending_coords:
-                        self.pending_coords.add(pixel_coord)
-                    enqueued_restores.append(pixel_coord)
-                    logging.debug(f"[ACTIVITY] Pixel {pixel_coord} restored. Queuing for restore credit.")
-                await self._save_locked()
-            else:
-                logging.debug("[DEBUG] No restored pixels identified.")
-
-            # 前回差分から消えたピクセルも修復扱いとし、即時クレジットする
-            additional_restored = (self.last_diff_snapshot - diff_set) - set(restored_pixels)
-            if additional_restored:
-                logging.debug(f"[DEBUG] Additional restored pixels detected via snapshot diff: {additional_restored}")
-                for pixel_coord in additional_restored:
-                    if pixel_coord in self.pending_coords:
-                        continue
-                    rel_x = pixel_coord[0] - base_global_x
-                    rel_y = pixel_coord[1] - base_global_y
-                    if not (0 <= rel_y < current_ref_img_mask.shape[0] and 0 <= rel_x < current_ref_img_mask.shape[1]):
-                        continue
-                    if not current_ref_img_mask[rel_y, rel_x]:
-                        continue
-                    if len(self.pending_coords) >= VANDAL_MAX_QUEUE_SIZE:
-                        logging.warning(f"[ACTIVITY] Pending queue full ({VANDAL_MAX_QUEUE_SIZE}). Remaining restores will be retried later.")
-                        break
-                    self.pending_coords.add(pixel_coord)
-                    enqueued_restores.append(pixel_coord)
-                    logging.debug(f"[ACTIVITY] Snapshot restore queued for {pixel_coord}.")
-
-            # 新たに発生した差分ピクセル = 荒らし候補
-            candidate_pixels = diff_set - self.vandalized_pixels - self.pending_coords
-            if not candidate_pixels:
-                logging.debug("[ACTIVITY] No new vandalized pixels to queue.")
-            else:
-                now = time.monotonic()
-                self._prune_recent_cache(now)
-
-                for pixel_coord in candidate_pixels:
-                    rel_x = pixel_coord[0] - base_global_x
-                    rel_y = pixel_coord[1] - base_global_y
-                    if not (0 <= rel_y < current_ref_img_mask.shape[0] and 0 <= rel_x < current_ref_img_mask.shape[1]):
-                        logging.debug(f"[ACTIVITY] Pixel {pixel_coord} is outside monitor area, ignoring.")
-                        continue
-                    if not current_ref_img_mask[rel_y, rel_x]:
-                        logging.debug(f"[ACTIVITY] Pixel {pixel_coord} is outside reference mask, ignoring.")
-                        continue
-                    if len(self.pending_coords) >= VANDAL_MAX_QUEUE_SIZE:
-                        logging.warning(f"[ACTIVITY] Pending queue full ({VANDAL_MAX_QUEUE_SIZE}). Remaining pixels will be retried later.")
-                        break
-                    last_seen = self.recent_pixel_ts.get(pixel_coord)
-                    if last_seen and (now - last_seen) < VANDAL_PIXEL_DEDUP_SECONDS:
-                        continue
-                    self.recent_pixel_ts[pixel_coord] = now
-                    self.pending_coords.add(pixel_coord)
-                    self.pixel_detected_at[pixel_coord] = now
-                    enqueued_vandals.append(pixel_coord)
-
-            # 次回比較用に差分スナップショットを更新
-            self.last_diff_snapshot = set(diff_set)
-
-        # キューに追加
-        for pixel_coord in enqueued_vandals:
-            self.pending_queue.put_nowait(('vandal', pixel_coord))
-
-        for pixel_coord in enqueued_restores:
-            self.pending_queue.put_nowait(('restore', pixel_coord))
-
-        if enqueued_vandals or enqueued_restores:
-            logging.debug(f"[ACTIVITY] Queued {len(enqueued_vandals)} vandal(s) and {len(enqueued_restores)} restore(s) for lookup (pending={self.pending_queue.qsize()}).")
-
-    async def _fetch_and_update_activity_info(self, pixel_coord: Tuple[int, int], activity_type: str):
-        """単一ピクセルの情報を取得し、ユーザーデータを更新する"""
-        global_px, global_py = pixel_coord
-        tile_x = global_px // TILE_SIZE
-        tile_y = global_py // TILE_SIZE
-        x_in_tile = global_px % TILE_SIZE
-        y_in_tile = global_py % TILE_SIZE
-
-        url = f"{PIXEL_INFO_BASE_URL}/{tile_x}/{tile_y}?x={x_in_tile}&y={y_in_tile}"
-
-        if activity_type == 'vandal':
-            detected_ts = self.pixel_detected_at.get(pixel_coord)
-            if detected_ts is not None:
-                age = time.monotonic() - detected_ts
-                if age > VANDAL_PIXEL_MAX_AGE_SECONDS:
-                    logging.debug(
-                        f"[VANDAL] Pixel {pixel_coord} stale ({age:.2f}s), skipping to avoid false positive."
-                    )
-                    return False
-        try:
-            payload = await self._rate_limited_request(url)
-        except PixelInfoRateLimitError:
-            logging.warning(f"[VANDAL] Pixel info rate limit hit while processing {pixel_coord}.")
-            raise
-
-        if not payload:
-            logging.warning(f"[VANDAL] Failed to fetch pixel info for {pixel_coord}. Skipping update.")
-            return False
-        painter = payload.get("paintedBy")
-        if not isinstance(painter, dict):
-            logging.warning(f"[VANDAL] No painter info for {pixel_coord}. Skipping update.")
-            return False
-        painter_id = painter.get("id")
-        if painter_id is None:
-            logging.warning(f"[VANDAL] Painter ID is None for {pixel_coord}. Skipping update.")
-            return False
-
-        painter_id_str = str(painter_id)
-
-        # ユーザーデータと状態を常に更新（ピクセル数をカウント）
-        async with self.lock:
-            await self._update_user_data(
-                painter_id_str, painter, pixel_coord, activity_type
-            )
-
-        # 荒らし活動の場合のみ、閾値チェックと永続化を行う
-        if activity_type == 'vandal':
-            # 閾値を超えたかどうかをチェック
-            is_vandal, _, _ = self._painter_threshold_state(painter_id_str)
-
-            if not is_vandal:
-                logging.debug(
-                    f"[ACTIVITY] Painter {painter_id_str} below threshold "
-                    f"({VANDAL_RECENT_PIXEL_THRESHOLD} px / {VANDAL_RECENT_WINDOW_SECONDS}s). Not marking as vandal for pixel {pixel_coord}."
-                )
-                return False # 荒らしとしてマークしない
-
-            still_diff = await self._pixel_still_differs(pixel_coord)
-            if still_diff is False:
-                logging.debug(f"[ACTIVITY] Pixel {pixel_coord} already restored before confirmation. Skipping.")
-                return False
-            if still_diff is None:
-                logging.debug(f"[ACTIVITY] Could not confirm state of pixel {pixel_coord}. Skipping to avoid false positive.")
-                return False
-
-            # 閾値を超えた場合のみ、荒らしピクセルとして記録
-            async with self.lock:
-                logging.debug(f"[DEBUG] Before adding: vandalized_pixels={self.vandalized_pixels}, pixel_coord={pixel_coord}")
-                self.vandalized_pixels.add(pixel_coord)
-                self.pixel_to_painter[pixel_coord] = painter_id_str
-                logging.debug(f"[DEBUG] After adding: vandalized_pixels={self.vandalized_pixels}")
-                await self._save_locked()
-
-            logging.debug(f"[ACTIVITY] Recorded pixel {pixel_coord} by painter {painter_id} as vandalized.")
-            return True
-
-        elif activity_type == 'restore':
-            # 修復カウントを反映した最新状態を保存する
-            async with self.lock:
-                await self._save_locked()
-            logging.debug(f"[ACTIVITY] Recorded pixel {pixel_coord} by painter {painter_id} as restored.")
-            return True
-
-        return False
-
-    async def _pixel_still_differs(self, pixel_coord: Tuple[int, int]) -> Optional[bool]:
-        """最新タイルを確認し、まだ差分があるかを検証する。"""
-
-        def _fetch_pixel_value() -> Optional[Tuple[int, int, int, int]]:
-            global_px, global_py = pixel_coord
-            tile_x = global_px // TILE_SIZE
-            tile_y = global_py // TILE_SIZE
-            x_in_tile = global_px % TILE_SIZE
-            y_in_tile = global_py % TILE_SIZE
-            url = f"{TILES_BASE}/{tile_x}/{tile_y}.png?t={random.randint(1000, 9999)}"
-            img = get_image_from_url(url)
-            if img is None:
-                return None
-            img = img.convert("RGBA")
-            if not (0 <= x_in_tile < img.width and 0 <= y_in_tile < img.height):
-                return None
-            return img.getpixel((x_in_tile, y_in_tile))
-
-        live_pixel = await asyncio.to_thread(_fetch_pixel_value)
-        if live_pixel is None:
-            return None
-
-        ref_pixel = self._get_reference_pixel(pixel_coord)
-        if ref_pixel is None:
-            return None
-
-        rgb_diff = sum(abs(int(a) - int(b)) for a, b in zip(live_pixel[:3], ref_pixel[:3]))
-        alpha_diff = abs(int(live_pixel[3]) - int(ref_pixel[3]))
-        return rgb_diff > PIXEL_DIFF_RGB_THRESHOLD or alpha_diff > PIXEL_DIFF_ALPHA_THRESHOLD
-
-    def _get_reference_pixel(self, pixel_coord: Tuple[int, int]) -> Optional[Tuple[int, int, int, int]]:
-        if REF_IMG is None:
-            return None
-        local_x = pixel_coord[0] - REF_GLOBAL_ORIGIN_X
-        local_y = pixel_coord[1] - REF_GLOBAL_ORIGIN_Y
-        if not (0 <= local_x < REF_IMG.width and 0 <= local_y < REF_IMG.height):
-            return None
-        return REF_IMG.getpixel((local_x, local_y))
-
-
-    def _decrement_daily_counter(self, daily_counts: Dict[str, int]):
-        """Reduce one count from the most recent day that still has remaining entries."""
-        if not daily_counts:
-            return
-        for day in sorted(daily_counts.keys(), reverse=True):
-            count = daily_counts.get(day, 0)
-            if count > 0:
-                new_count = count - 1
-                if new_count > 0:
-                    daily_counts[day] = new_count
-                else:
-                    daily_counts.pop(day, None)
-                break
-
-    def _rebalance_legacy_counts(self, painter_id: str, user_data: Dict[str, Any]):
-        """
-        旧ロジックで加算済みの修復ピクセルが残っている場合、
-        荒らしカウントを優先して相殺し、余剰分のみ修復として残す。
-        """
-        if user_data.get("_offset_legacy_applied_v1"):
-            return
-
-        vandal = max(0, user_data.get("vandal_count", 0))
-        restored = max(0, user_data.get("restored_count", 0))
-        if vandal and restored:
-            offset = min(vandal, restored)
-            if offset:
-                user_data["vandal_count"] = vandal - offset
-                user_data["restored_count"] = restored - offset
-                for _ in range(offset):
-                    self._decrement_daily_counter(user_data.get("daily_vandal_counts", {}))
-                    self._decrement_daily_counter(user_data.get("daily_restored_counts", {}))
-                logging.debug(
-                    f"[ACTIVITY] Applied legacy offset ({offset}) for painter {painter_id}. "
-                    f"Totals -> vandal:{user_data['vandal_count']} restored:{user_data['restored_count']}"
-                )
-
-        user_data["_offset_legacy_applied_v1"] = True
-
-    async def _update_user_data(self, painter_id: str, painter_info: Dict[str, Any], pixel_coord: Tuple[int, int], activity_type: str):
-        """ユーザーの活動（荒らし or 修復）ピクセル数を更新する"""
-        timestamp = datetime.utcnow().isoformat() + "Z"
-        current_date_str = datetime.utcnow().strftime("%Y-%m-%d")
-
-        key = painter_id
-        if key not in self.data:
-            # 新規ユーザー
-            self.data[key] = {
-                "id": painter_id,
-                "name": painter_info.get("name") or "",
-                "allianceName": painter_info.get("allianceName") or "",
-                "last_seen": timestamp,
-                "vandal_count": 0,
-                "restored_count": 0,
-                "daily_vandal_counts": {},
-                "daily_restored_counts": {},
-                "last_daily_reset": current_date_str,
-            }
-            logging.info(f"[ACTIVITY] Initialized new painter {painter_id} ({painter_info.get('name')}).")
-
-        user_data = self.data[key]
-        user_data['last_seen'] = timestamp
-        if painter_info.get('name'): user_data['name'] = painter_info['name']
-        if painter_info.get('allianceName'): user_data['allianceName'] = painter_info['allianceName']
-
-        # 古いデータ構造からの移行
-        if 'pixel_count' in user_data:
-            user_data['vandal_count'] = user_data.pop('pixel_count', 0)
-        if 'daily_pixel_counts' in user_data:
-            user_data['daily_vandal_counts'] = user_data.pop('daily_pixel_counts', {})
-
-        # カウントの初期化
-        user_data.setdefault('vandal_count', 0)
-        user_data.setdefault('restored_count', 0)
-        user_data.setdefault('daily_vandal_counts', {})
-        user_data.setdefault('daily_restored_counts', {})
-        user_data.setdefault('last_daily_reset', current_date_str)
-
-        # 旧データの整合性を一度だけ補正
-        self._rebalance_legacy_counts(painter_id, user_data)
-
-        # 日付が変わっていたらデイリーカウントをリセット
-        if user_data['last_daily_reset'] != current_date_str:
-            user_data['daily_vandal_counts'] = {}
-            user_data['daily_restored_counts'] = {}
-            user_data['last_daily_reset'] = current_date_str
-
-        # 活動タイプに応じてカウントをインクリメント
-        if activity_type == 'vandal':
-            user_data['vandal_count'] += 1
-            user_data['daily_vandal_counts'][current_date_str] = user_data['daily_vandal_counts'].get(current_date_str, 0) + 1
-            user_data['last_pixel'] = {
-                "x": int(pixel_coord[0]),
-                "y": int(pixel_coord[1]),
-            }
-            logging.debug(f"[ACTIVITY] Vandalism by {painter_id}. Total: {user_data['vandal_count']}, Daily: {user_data['daily_vandal_counts'][current_date_str]}")
-            return user_data['vandal_count'], user_data['daily_vandal_counts'][current_date_str]
-
-        elif activity_type == 'restore':
-            if user_data['vandal_count'] > 0:
-                user_data['vandal_count'] -= 1
-                self._decrement_daily_counter(user_data['daily_vandal_counts'])
-                logging.debug(
-                    f"[ACTIVITY] Restoration by {painter_id} offset a previous vandalism. "
-                    f"Remaining vandal count: {user_data['vandal_count']}"
-                )
-                logging.debug(
-                    f"[DEBUG] Offset vandal count for {painter_id}: total={user_data['vandal_count']}"
-                )
-                daily_restored = user_data['daily_restored_counts'].get(current_date_str, 0)
-                return user_data['restored_count'], daily_restored
-
-            user_data['restored_count'] += 1
-            user_data['daily_restored_counts'][current_date_str] = user_data['daily_restored_counts'].get(current_date_str, 0) + 1
-            logging.debug(f"[ACTIVITY] Restoration by {painter_id}. Total: {user_data['restored_count']}, Daily: {user_data['daily_restored_counts'][current_date_str]}")
-            logging.debug(f"[DEBUG] Restored count for {painter_id}: total={user_data['restored_count']}, daily={user_data['daily_restored_counts'][current_date_str]}")
-            return user_data['restored_count'], user_data['daily_restored_counts'][current_date_str]
-
-        return 0, 0
-
-    def _write_file(self, path: Path, data: Dict[str, Any]):
-        tmp_path = path.with_suffix(".tmp")
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        tmp_path.replace(path)
-
-    async def _save_locked(self):
-        """Persist vandal user data and pixel state (caller must hold self.lock)."""
-        user_data_snapshot = dict(self.data)
-        await asyncio.to_thread(self._write_file, self.user_data_path, user_data_snapshot)
-
-        pixel_state_snapshot = {
-            "vandalized_pixels": [[int(x), int(y)] for (x, y) in self.vandalized_pixels],
-            "pixel_to_painter": {str((int(x), int(y))): v for (x, y), v in self.pixel_to_painter.items()},
-        }
-        await asyncio.to_thread(self._write_file, self.pixel_state_path, pixel_state_snapshot)
-
-    async def save(self):
-        """Persist state while managing locking internally."""
-        async with self.lock:
-            await self._save_locked()
-
-    async def delete_painter(self, painter_id: str) -> Dict[str, Any]:
-        """Remove a painter and all associated pixel records."""
-        painter_id = str(painter_id)
-        removed_pixels: List[Tuple[int, int]] = []
-        async with self.lock:
-            removed_user = painter_id in self.data
-            if removed_user:
-                self.data.pop(painter_id, None)
-                self.painter_recent_pixels.pop(painter_id, None)
-
-            for coord, pid in list(self.pixel_to_painter.items()):
-                if pid == painter_id:
-                    removed_pixels.append(coord)
-                    self.pixel_to_painter.pop(coord, None)
-                    self.vandalized_pixels.discard(coord)
-
-            for coord in removed_pixels:
-                self.pending_coords.discard(coord)
-                self.recent_pixel_ts.pop(coord, None)
-
-            await self._save_locked()
-
-        return {
-            "removed_user": removed_user,
-            "removed_pixels": len(removed_pixels),
-        }
-
-    async def _rate_limited_request(self, url: str) -> Optional[Dict[str, Any]]:
-        async with self.rate_lock:
-            now = time.monotonic()
-            wait = self.rate_limit_interval - (now - self.last_request_ts)
-            if wait > 0:
-                await asyncio.sleep(wait)
-            self.last_request_ts = time.monotonic()
-        return await asyncio.to_thread(self._sync_fetch_json, url)
-
-    async def _pixel_worker(self):
-        logging.info("[ACTIVITY] Pixel info worker started.")
-        while True:
-            activity_type, pixel_coord = await self.pending_queue.get()
-            try:
-                await self._process_pending_pixel(activity_type, pixel_coord)
-            finally:
-                async with self.lock:
-                    self.pending_coords.discard(pixel_coord)
-                    self.pixel_detected_at.pop(pixel_coord, None)
-                self.pending_queue.task_done()
-
-    async def _process_pending_pixel(self, activity_type: str, pixel_coord: Tuple[int, int]):
-        attempt = 0
-        while True:
-            try:
-                await self._fetch_and_update_activity_info(pixel_coord, activity_type)
-                return
-            except PixelInfoRateLimitError:
-                attempt += 1
-                backoff = PIXEL_INFO_BACKOFF_SECONDS * max(1, attempt)
-                logging.warning(f"[ACTIVITY] Rate limit hit while processing {pixel_coord}. Retrying in {backoff:.1f}s (attempt {attempt}).")
-                await asyncio.sleep(backoff)
-            except Exception as exc:
-                logging.warning(f"[ACTIVITY] Unexpected error while processing pixel {pixel_coord}: {exc}", exc_info=True)
-                return
-
-    @staticmethod
-    def _sync_fetch_json(url: str) -> Optional[Dict[str, Any]]:
-        headers = {
-            "User-Agent": "python-urllib/3 fetch_pixel_json",
-            "Accept": "application/json, */*;q=0.9",
-        }
-        req = urllib.request.Request(url, headers=headers)
-        try:
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                data = resp.read()
-                text = data.decode("utf-8", errors="replace")
-                return json.loads(text)
-        except urllib.error.HTTPError as exc:
-            if exc.code == 429:
-                raise PixelInfoRateLimitError from exc
-            logging.warning(f"[VANDAL] Failed to fetch pixel info: {exc}")
-            return None
-        except (urllib.error.URLError, json.JSONDecodeError) as exc:
-            logging.warning(f"[VANDAL] Failed to fetch pixel info: {exc}")
-            return None
-
-
-ACTIVITY_TRACKER = PixelActivityTracker(ACTIVITY_TRACKER_PATH)
-
-async def handle_activity_payload(payload: Optional[Dict[str, Any]]):
-    """Forward diff pixels detected in worker process to the vandal tracker."""
-    if not payload:
-        return
-    if ACTIVITY_TRACKER is None:
-        return
-    if REF_ALPHA_MASK is None:
-        logging.warning("[VANDAL] Reference alpha mask is unavailable; skipping update.")
-        return
-
-    global_diff_pixels = payload.get("global_diff_pixels") or []
-    base_global_x = payload.get("base_global_x")
-    base_global_y = payload.get("base_global_y")
-
-    if base_global_x is None or base_global_y is None:
-        base_global_x = REF_PIXEL[0] * TILE_SIZE + REF_PIXEL[2]
-        base_global_y = REF_PIXEL[1] * TILE_SIZE + REF_PIXEL[3]
-
-    try:
-        await ACTIVITY_TRACKER.process_diff_pixels(
-            global_diff_pixels,
-            REF_ALPHA_MASK,
-            base_global_x,
-            base_global_y,
-        )
-    except Exception:
-        logging.error("[VANDAL] Failed to process diff pixels", exc_info=True)
-
-def schedule_activity_payload_processing(payload: Optional[Dict[str, Any]]):
-    """Dispatch vandal payload processing without blocking the main loop."""
-    if not payload:
-        return
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        logging.warning("[VANDAL] Event loop not running; skipping payload processing.")
-        return
-
-    task = loop.create_task(handle_activity_payload(payload))
-    PENDING_ACTIVITY_TASKS.add(task)
-
-    def _cleanup(fut: asyncio.Task):
-        PENDING_ACTIVITY_TASKS.discard(fut)
-        if fut.cancelled():
-            return
-        exc = fut.exception()
-        if exc:
-            logging.error("[VANDAL] Background payload task failed: %s", exc, exc_info=True)
-
-    task.add_done_callback(_cleanup)
-
 # --- Image Message Protocol ---
 IMAGE_TYPE_REF = 1
 IMAGE_TYPE_LIVE = 2
 IMAGE_TYPE_DIFF = 3
-IMAGE_TYPE_RAW_TILE = 4
-IMAGE_TYPE_MINIMAP = 5
-IMAGE_TYPE_MAP = {"ref": IMAGE_TYPE_REF, "live": IMAGE_TYPE_LIVE, "diff": IMAGE_TYPE_DIFF, "raw_tile": IMAGE_TYPE_RAW_TILE, "minimap": IMAGE_TYPE_MINIMAP}
+IMAGE_TYPE_MAP = {"ref": IMAGE_TYPE_REF, "live": IMAGE_TYPE_LIVE, "diff": IMAGE_TYPE_DIFF}
 
 def create_image_message(image_type: str, image_bytes: bytes) -> bytes:
     type_id = IMAGE_TYPE_MAP.get(image_type)
@@ -901,30 +261,6 @@ def process_live_image(
         diff_pct, diff_img, changed_pixel_coord, diff_pixels, diff_mask = compare_images(
             ref_img, aligned_live_img, rgb_threshold, alpha_threshold
         )
-        # vandal_samples = sample_diff_coordinates(diff_mask, VANDAL_GRID_COLS, VANDAL_GRID_ROWS) # グリッドサンプリング廃止
-
-        # 荒らされたピクセルをすべて取得し、グローバル座標に変換
-        global_diff_pixels = []
-        if diff_pixels > 0:
-            ref_alpha_mask = np.array(ref_img)[:, :, 3] > 0 # 参照画像の不透明マスク
-            # diff_mask は ref_img のサイズに合わせられているはず
-            relative_diff_coords = np.argwhere(diff_mask)
-            for ry, rx in relative_diff_coords:
-                # 参照画像の有効な領域内のピクセルのみを対象とする
-                if ref_alpha_mask[ry, rx]:
-                    global_px = REF_PIXEL[0] * TILE_SIZE + REF_PIXEL[2] + rx
-                    global_py = REF_PIXEL[1] * TILE_SIZE + REF_PIXEL[3] + ry
-                    global_diff_pixels.append((global_px, global_py))
-
-        # ACTIVITY_TRACKER 処理用に監視領域の原点も保持
-        base_global_x = REF_PIXEL[0] * TILE_SIZE + REF_PIXEL[2]
-        base_global_y = REF_PIXEL[1] * TILE_SIZE + REF_PIXEL[3]
-        activity_payload = {
-            "global_diff_pixels": global_diff_pixels,
-            "base_global_x": base_global_x,
-            "base_global_y": base_global_y,
-        }
-
         metadata_payload = {
             "type": "metadata",
             "diff_percentage": round(float(diff_pct), 2),
@@ -1007,8 +343,6 @@ def process_live_image(
             "diff_image_msg": diff_image_message,
             "diff_pct": diff_pct, # For logging
             "changed_pixel_coord": changed_pixel_coord,
-            "activity_payload": activity_payload,
-            # "vandal_sample_coords": vandal_samples, # グリッドサンプリング廃止に伴い削除
         }
     except Exception as e:
         logging.error(f"Error during sync image processing: {e}", exc_info=True)
@@ -1024,7 +358,6 @@ class AppState:
             "live_image_msg": None,
             "diff_image_msg": None,
             "timestamp": 0,
-            "vandal_sample_coords": [],
         }
 
 app_state = AppState()
@@ -1058,15 +391,6 @@ class ConnectionManager:
                 self.disconnect(connection)
 
 manager = ConnectionManager()
-
-# ------------------ Admin Helpers ------------------
-
-def verify_admin_request(request: Request):
-    if not ADMIN_API_TOKEN:
-        raise HTTPException(status_code=503, detail="Admin API token not configured")
-    token = request.headers.get("X-Admin-Token")
-    if token != ADMIN_API_TOKEN:
-        raise HTTPException(status_code=403, detail="Invalid admin token")
 
 # ------------------ Background Tasks ------------------
 
@@ -1136,18 +460,11 @@ async def fetch_and_process_data_loop(executor: ProcessPoolExecutor):
                     logging.debug("[PROCESS] process_live_image returned")
 
                     if processed_data:
-                        schedule_activity_payload_processing(processed_data.get("activity_payload"))
-
                         async with app_state.lock:
                             app_state.latest_data["metadata"] = processed_data["metadata"]
                             app_state.latest_data["live_image_msg"] = processed_data["live_image_msg"]
                             app_state.latest_data["diff_image_msg"] = processed_data["diff_image_msg"]
                             app_state.latest_data["timestamp"] = time.time()
-
-                            # 9秒ごとの問合せループ用にサンプル座標を追記
-                            new_coords = processed_data.get("vandal_sample_coords", [])
-                            if new_coords:
-                                app_state.latest_data["vandal_sample_coords"].extend(new_coords)
 
                         last_successful_data = processed_data  # Cache successful data
                         diff_pct = processed_data["diff_pct"]
@@ -1161,7 +478,6 @@ async def fetch_and_process_data_loop(executor: ProcessPoolExecutor):
                             "live_image_msg": None,
                             "diff_image_msg": None,
                             "timestamp": time.time(),
-                            "vandal_sample_coords": [],
                         }
             else:
                 # Failed to fetch all tiles, send error message
@@ -1172,7 +488,6 @@ async def fetch_and_process_data_loop(executor: ProcessPoolExecutor):
                         "live_image_msg": None,
                         "diff_image_msg": None,
                         "timestamp": time.time(),
-                        "vandal_sample_coords": [],
                     }
 
         except Exception as e:
@@ -1247,7 +562,6 @@ try:
     MONITOR_W, MONITOR_H = REF_IMG.size
     REF_IMG_BYTES = img_to_bytes(REF_IMG)
     WEIGHT_CONFIG = build_weight_config(REF_IMG)
-    REF_ALPHA_MASK = np.array(REF_IMG)[:, :, 3] > 0
     logging.info(f"Reference loaded: {REF_IMAGE_PATH} size={REF_IMG.size}")
 except Exception as e:
     logging.critical(e, exc_info=True)
@@ -1255,35 +569,10 @@ except Exception as e:
     MONITOR_W, MONITOR_H = 0, 0
     REF_IMG_BYTES = b""
     WEIGHT_CONFIG = None
-    REF_ALPHA_MASK = None
-
-HTML_FILE = Path("tools/wplace_monitor.html")
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    if HTML_FILE.exists():
-        return HTML_FILE.read_text(encoding="utf-8")
     return HTMLResponse("<h1>wplace monitor backend is running</h1>", status_code=200)
-
-@app.get("/wplace_monitor.html")
-async def get_html():
-    if HTML_FILE.exists():
-        return FileResponse(str(HTML_FILE))
-    return HTMLResponse("wplace_monitor.html not found", status_code=404)
-
-
-@app.post("/api/admin/activity/clear")
-async def admin_clear_activity(payload: Dict[str, Any], request: Request):
-    verify_admin_request(request)
-    painter_id = str(payload.get("painter_id", "")).strip()
-    if not painter_id:
-        raise HTTPException(status_code=400, detail="painter_id is required")
-
-    result = await ACTIVITY_TRACKER.delete_painter(painter_id)
-    status = "not_found"
-    if result["removed_user"] or result["removed_pixels"]:
-        status = "ok"
-    return {"status": status, **result}
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):

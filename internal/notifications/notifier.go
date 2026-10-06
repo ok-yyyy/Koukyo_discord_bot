@@ -50,8 +50,6 @@ type Notifier struct {
 	dispatchLowQueue         chan string
 	dataDir                  string
 	lastDailyReportDate      string
-	vandalUserNotifier       *VandalUserNotifier
-	fixUserNotifier          *FixUserNotifier
 	watchTargetsState        *watchTargetsRuntime
 	progressTargetsState     *progressTargetsRuntime
 	droppedHighPriority      uint64
@@ -90,8 +88,6 @@ func NewNotifier(session *discordgo.Session, mon *monitor.Monitor, settings *con
 		dispatchLowQueued:    make(map[string]bool),
 		dispatchLowQueue:     make(chan string, 2048),
 		dataDir:              dataDir,
-		vandalUserNotifier:   NewVandalUserNotifier(session, settings),
-		fixUserNotifier:      NewFixUserNotifier(session, settings),
 		watchTargetsState:    newWatchTargetsRuntime(dataDir),
 		progressTargetsState: newProgressTargetsRuntime(dataDir),
 		dmUserStates:         make(map[string]*dmUserState),
@@ -1032,14 +1028,32 @@ func (n *Notifier) ResetState(guildID string) {
 }
 
 func (n *Notifier) NotifyNewUser(kind string, user activity.UserActivity) {
+	var title string
+	var isVandal bool
 	switch kind {
 	case "vandal":
-		if n.vandalUserNotifier != nil {
-			n.vandalUserNotifier.Notify(user)
-		}
+		title, isVandal = "🚨 新規荒らしユーザー検知", true
 	case "fix":
-		if n.fixUserNotifier != nil {
-			n.fixUserNotifier.Notify(user)
+		title, isVandal = "🛠️ 新規修復ユーザー検知", false
+	default:
+		return
+	}
+	for _, guild := range n.session.State.Guilds {
+		gs := n.settings.GetGuildSettings(guild.ID)
+		channel := gs.NotificationVandalChannel
+		if !isVandal {
+			channel = gs.NotificationFixChannel
+		}
+		if channel == nil {
+			continue
+		}
+		embed, file := buildUserNotifyEmbed(title, user, isVandal)
+		msg := &discordgo.MessageSend{Embeds: []*discordgo.MessageEmbed{embed}}
+		if file != nil {
+			msg.Files = []*discordgo.File{file}
+		}
+		if _, err := n.session.ChannelMessageSendComplex(*channel, msg); err != nil {
+			log.Printf("Failed to send %s user notification to guild %s: %v", kind, guild.ID, err)
 		}
 	}
 }

@@ -460,13 +460,6 @@ func isZeroDiff(value float64) bool {
 	return math.Abs(value) <= zeroDiffEpsilon
 }
 
-func (ms *MonitorState) resetDiffHistoryLocked() {
-	ms.DiffHistory = ring.New(historyLimit)
-	ms.WeightedDiffHistory = ring.New(historyLimit)
-	ms.DiffHistoryCount = 0
-	ms.WeightedHistoryCount = 0
-}
-
 // addTimelapseFrameLocked assumes ms.mu is already locked.
 func (ms *MonitorState) addTimelapseFrameLocked(liveImage, diffImage []byte, now time.Time) {
 	if ms.TimelapseFrames == nil || len(diffImage) == 0 {
