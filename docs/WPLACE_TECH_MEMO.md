@@ -9,7 +9,7 @@
 
 - 座標系と URL 仕様
 - Wplace データ取得 API
-- WebSocket 監視から通知までの処理経路
+- タイル監視から通知までの処理経路
 - ユーザー活動集計と実績付与
 - 永続データの意味と運用時の注意点
 
@@ -62,7 +62,7 @@ URL 生成は `BuildWplaceURL` / `BuildWplacePixelURL` / `BuildWplaceHighDetailP
   - 429 発生時は `Tracker` 側で指数バックオフ
   - gzip/deflate 応答に対応
 
-## 4. 監視パイプライン (WS -> 集計 -> 通知)
+## 4. 監視パイプライン (タイル取得 -> 集計 -> 通知)
 
 大まかな経路:
 
@@ -72,19 +72,14 @@ URL 生成は `BuildWplaceURL` / `BuildWplacePixelURL` / `BuildWplaceHighDetailP
 
 ## 4.1 Monitor 層
 
-- WebSocket テキスト:
-  - 差分率などのメタデータを `MonitorState` に反映
-- WebSocket バイナリ:
-  - `type_id=2`: live image
-  - `type_id=3`: diff image
-  - いずれも 5byte ヘッダ付き (`type_id + payload_size`)
+- 5秒間隔で監視範囲のタイルを取得し、テンプレート (`data/template_img/1818-806-989-358.png`) と比較
+- 差分判定: RGB差の合計 > 45 または アルファ差 > 15
+- 差分率などのメタデータと live / diff 画像を `MonitorState` に反映
 - `diff image` は `Tracker.EnqueueDiffImage` へ流す
 
-WS 障害時のフォールバック:
+タイル取得失敗時:
 
-- 60秒以上 WS 不達で復旧判定
-- `MONITOR_POLL_URL` が設定されていれば HTTP Poll に切替
-- Poll の再試行は指数バックオフ (最大5分)
+- 状態は更新せず、指数バックオフ (最大1分) で再試行
 
 ## 4.2 Activity (ユーザー活動推定)
 
@@ -171,10 +166,10 @@ ID 連携仕様:
 ## 8. 運用時によく見る確認ポイント
 
 - Wplace 監視が止まる:
-  - `WEBSOCKET_URL` 到達性
-  - `MONITOR_POLL_URL` のフォールバック可否
+  - ログの `Monitor capture failed`（タイル取得失敗 / テンプレート未配置）
+  - `/now` の取得状態
 - 活動集計が増えない:
-  - diff 画像が type_id=3 で流れているか
+  - 監視が動いて diff 画像が更新されているか
   - pixel API 429 が継続していないか
 - 実績が出ない:
   - `achievement_rules.json` の条件
@@ -185,7 +180,7 @@ ID 連携仕様:
 
 - 座標/URL: `internal/utils/coordinator.go`, `internal/utils/map_zoom.go`
 - タイル取得: `internal/wplace/tiles.go`
-- WS監視: `internal/monitor/monitor.go`
+- タイル監視: `internal/monitor/monitor.go`, `internal/monitor/reference.go`
 - 活動集計: `internal/activity/tracker.go`, `internal/activity/pixel_api.go`
 - 実績評価: `internal/notifications/notifier_achievements.go`, `internal/achievements/store.go`
 - 連携フロー: `internal/commands/me_link.go`

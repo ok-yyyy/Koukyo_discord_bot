@@ -1,6 +1,6 @@
 # Koukyo Discord Bot (Go Edition)
 
-Wplace 監視を行う Discord Bot の Go 実装です。WebSocket の差分監視・通知・ユーザー活動集計・画像生成をまとめて提供します。
+Wplace 監視を行う Discord Bot の Go 実装です。タイル取得による差分監視・通知・ユーザー活動集計・画像生成をまとめて提供します。
 
 ## クイックスタート
 
@@ -12,12 +12,6 @@ Wplace 監視を行う Discord Bot の Go 実装です。WebSocket の差分監�
 
 ```env
 DISCORD_TOKEN=your_discord_token_here
-WEBSOCKET_URL=ws://monitor:8000/ws
-MONITOR_POLL_URL=https://example.com/monitor/status
-MONITOR_FORCE_STANDALONE=0
-MONITOR_STANDALONE_TARGET_ID=
-MONITOR_STANDALONE_ORIGIN=1818-806-989-358
-MONITOR_STANDALONE_TEMPLATE=1818-806-989-358.png
 ```
 
 `docker-compose.yml` からは以下のように参照します:
@@ -43,7 +37,7 @@ go run ./cmd/bot
 
 ## 主な機能
 
-- WebSocket での差分監視（差分率/加重差分率、画像データ）
+- Wplace のタイルを5秒間隔で取得し、テンプレートとの差分を監視（差分率/加重差分率、画像データ）
 - 差分通知（Tier 制、0%復帰/完了通知、ロールメンション対応）
 - 差分通知に同時検出ユーザーの内訳表示（`user#id | xxpx`、上位5件）
 - 小規模差分モード（10px以下）: 1つのテキスト通知を更新し続け、差分座標を高倍率URL付きで表示
@@ -55,8 +49,6 @@ go run ./cmd/bot
 - 画像生成（/now の結合画像、グラフ/ヒートマップ/タイムラプス）
 - 地図/タイル取得ユーティリティ（`/get`、`/regionmap`）
 - 追加監視（`watch_targets.json`）と進捗監視（`progress_targets.json`）
-- WebSocket 断時のフォールバック（HTTP Poll → Standalone 2秒間隔ポーリング）
-  - Standalone 時は `data/1818-806-989-358_kiku_only.webp` で菊のみ加重差分を算出
 - 外部 API 向けのレートリミッター（既定 2 RPS）
 
 ## コマンド一覧
@@ -98,8 +90,6 @@ go run ./cmd/bot
 - `paint` - Paint 回復時間の計算・通知予約（スラッシュ専用）
   - `/paint set`: 現在値と上限値を入力し、全回復までの時間を計算。`notify: on` で完了時にDM通知。
   - `/paint cancel`: 予約されている通知をキャンセル。
-
-※ `graph` / `timelapse` / `heatmap` は WebSocket 監視が有効なときのみ利用できます。
 
 ## 追加監視 / 進捗監視
 
@@ -164,12 +154,7 @@ JSON 形式は共通です:
 必須/任意の環境変数:
 
 - `DISCORD_TOKEN` (必須)
-- `WEBSOCKET_URL` (任意: 未指定の場合は監視機能が無効)
-- `MONITOR_POLL_URL` (任意: WebSocket が1分以上切断された際のHTTPフォールバック取得先)
-- `MONITOR_FORCE_STANDALONE` (任意: `1` で起動時から常にスタンドアローン監視モード。WSサーバーが停止している場合に有効)
-- `MONITOR_STANDALONE_TARGET_ID` (任意: WS断時/強制スタンドアローン時の自前監視で使う watch target ID。指定時のみ watch_targets を参照)
-- `MONITOR_STANDALONE_ORIGIN` (任意: watch target が解決できない場合のフォールバック座標)
-- `MONITOR_STANDALONE_TEMPLATE` (任意: watch target が解決できない場合のフォールバックテンプレート。既定: `1818-806-989-358.png`)
+- `MONITOR_DEBUG_LOG` (任意: `1` で監視の取得ごとのデバッグログを出力)
 
 ## 時刻基準
 
@@ -196,7 +181,8 @@ JSON 形式は共通です:
 - `data/watch_targets.json` (追加監視ターゲット定義)
 - `data/progress_targets.json` (進捗監視ターゲット定義)
 - `data/template_img/` (監視用テンプレート画像)
-- `data/1818-806-989-358_kiku_only.webp` (Standalone 加重差分用・菊のみテンプレート)
+  - `1818-806-989-358.png` (メイン監視のテンプレート。必須)
+  - `1818-806-989-358_kiku_only.webp` (加重差分用の菊のみマスク。無い場合は加重差分なしで動作)
 
 ## 実績ルールJSON
 
@@ -282,7 +268,6 @@ docker compose up --build
 - Discord REST クライアントに 15 秒タイムアウトを設定し、通知更新で監視ループが詰まるリスクを低減。
 - タイル一括取得はワーカープール方式で実行し、過剰な goroutine 生成を回避。
 - small diff 座標抽出はキャッシュし、同一 diff 画像の再デコードを抑制。
-- WebSocket テキストメッセージ解析は単一 Unmarshal に統一してオーバーヘッドを削減。
 - 断定推定は 1プローブ API 戦略で実装し、急増/急減局面の API コストを大幅に抑制。
 
 ## トラブルシュート
@@ -291,14 +276,14 @@ docker compose up --build
   -> Bot の再起動後に同期されます。権限不足や API エラーがある場合はログを確認してください。
 
 - 監視が動かない
-  -> `WEBSOCKET_URL` の設定と接続先の到達性を確認してください。
+  -> `data/template_img/1818-806-989-358.png` が配置されているか、ログに `Monitor capture failed` が出ていないか確認してください。
 
 - 通知が来ない
   -> `/settings` で通知チャンネルを設定し、`auto_notify` が有効か確認してください。
   -> 進捗通知は `/progresschannel act:on` が必要です。
 
 - DM速報が届かない
-  -> `/dm on` で有効化してください。加重差分率が取得できない場合（WS未接続かつ kiku テンプレート未配置）は送信されません。
+  -> `/dm on` で有効化してください。加重差分率が取得できない場合（菊のみマスク未配置）は送信されません。
 
 ## GitHub 用メモ
 
