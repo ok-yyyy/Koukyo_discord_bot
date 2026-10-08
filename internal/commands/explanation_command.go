@@ -67,7 +67,7 @@ func buildExplanationEmbed(page int) *discordgo.MessageEmbed {
 			{
 				Name: "1) 監視データの入口",
 				Value: strings.Join([]string{
-					"- WebSocket から差分率/差分px/加重差分率などを受信し、`MonitorState` に保存します。",
+					"- 5秒ごとに Wplace のタイルを取得してテンプレートと比較し、差分率/差分px/加重差分率を `MonitorState` に保存します。",
 					"- 最新値(`LatestData`)と最新画像(`LatestImages`)が通知や /get に使われます。",
 				}, "\n"),
 				Inline: false,
@@ -112,27 +112,24 @@ func buildExplanationEmbed(page int) *discordgo.MessageEmbed {
 	} else if page == 2 {
 		fields = []*discordgo.MessageEmbedField{
 			{
-				Name: "監視データ(JSON)の形式",
+				Name: "監視データの内容",
 				Value: strings.Join([]string{
-					"WebSocketのテキストメッセージで受信する主なフィールド:",
-					"`type`, `message`",
-					"`diff_percentage`, `diff_pixels`",
-					"`weighted_diff_percentage`, `weighted_diff_color`",
-					"`chrysanthemum_diff_pixels`, `background_diff_pixels`",
-					"`chrysanthemum_total_pixels`, `background_total_pixels`, `total_pixels`",
+					"テンプレートの不透明ピクセルのうち、RGB差の合計が45超 または アルファ差が15超のものを差分とします。",
+					"- 差分率 / 差分px",
+					"- 加重差分率（菊全体と背景全体を同じ重みで計算）",
+					"- 菊/背景それぞれの差分pxと総px",
 					"",
-					"Bot側は `MonitorState.LatestData` に保存し、通知/統計/コマンドが参照します。",
+					"結果は `MonitorState.LatestData` に保存し、通知/統計/コマンドが参照します。",
 				}, "\n"),
 				Inline: false,
 			},
 			{
-				Name: "監視画像(バイナリ)の形式",
+				Name: "監視画像",
 				Value: strings.Join([]string{
-					"WebSocketのバイナリは `type_id(1byte) + payload_size(4byte LE) + PNG`:",
-					"- `type_id=2`: live画像",
-					"- `type_id=3`: diff画像",
+					"取得のたびに2枚のPNGを生成します:",
+					"- live画像: テンプレートの範囲で切り抜いた現在の状態",
+					"- diff画像: 差分ピクセルを赤で着色",
 					"",
-					"payloadの先頭に `00` が付くケースがあるのでBot側で除去してから保持します。",
 					"画像は `MonitorState.LatestImages` に保存され、通知の結合プレビューに使われます。",
 				}, "\n"),
 				Inline: false,
