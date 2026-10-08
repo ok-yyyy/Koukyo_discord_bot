@@ -39,14 +39,6 @@ func (v *SettingsView) Components() []discordgo.MessageComponent {
 		toggleStyle = discordgo.DangerButton
 	}
 
-	// 通知指標ボタン
-	metricLabel := "通知指標: 全体差分率"
-	metricStyle := discordgo.SecondaryButton
-	if settings.NotificationMetric == "weighted" {
-		metricLabel = "通知指標: 加重差分率 (菊重視)"
-		metricStyle = discordgo.PrimaryButton
-	}
-
 	return []discordgo.MessageComponent{
 		discordgo.ActionsRow{
 			Components: []discordgo.MessageComponent{
@@ -54,11 +46,6 @@ func (v *SettingsView) Components() []discordgo.MessageComponent {
 					Label:    toggleLabel,
 					Style:    toggleStyle,
 					CustomID: "settings_toggle_notify",
-				},
-				discordgo.Button{
-					Label:    metricLabel,
-					Style:    metricStyle,
-					CustomID: "settings_toggle_metric",
 				},
 			},
 		},
@@ -121,8 +108,6 @@ func HandleSettingsButtonInteraction(
 	switch customID {
 	case "settings_toggle_notify":
 		handleToggleNotify(s, i, settings, notifier)
-	case "settings_toggle_metric":
-		handleToggleMetric(s, i, settings, notifier)
 	case "settings_set_threshold":
 		handleSetThreshold(s, i, settings)
 	case "settings_set_mention_threshold":
@@ -138,32 +123,6 @@ func HandleSettingsButtonInteraction(
 func handleToggleNotify(s *discordgo.Session, i *discordgo.InteractionCreate, settings *config.SettingsManager, notifier *notifications.Notifier) {
 	settings.UpdateGuildSetting(i.GuildID, func(gs *config.GuildSettings) {
 		gs.AutoNotifyEnabled = !gs.AutoNotifyEnabled
-	})
-
-	// 通知状態をリセット
-	notifier.ResetState(i.GuildID)
-
-	// Embedを更新
-	embed := embeds.BuildSettingsEmbed(settings, i.GuildID)
-	view := NewSettingsView(settings, notifier, i.GuildID)
-
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseUpdateMessage,
-		Data: &discordgo.InteractionResponseData{
-			Embeds:     []*discordgo.MessageEmbed{embed},
-			Components: view.Components(),
-		},
-	})
-}
-
-// handleToggleMetric 通知指標切り替え
-func handleToggleMetric(s *discordgo.Session, i *discordgo.InteractionCreate, settings *config.SettingsManager, notifier *notifications.Notifier) {
-	settings.UpdateGuildSetting(i.GuildID, func(gs *config.GuildSettings) {
-		if gs.NotificationMetric == "overall" {
-			gs.NotificationMetric = "weighted"
-		} else {
-			gs.NotificationMetric = "overall"
-		}
 	})
 
 	// 通知状態をリセット

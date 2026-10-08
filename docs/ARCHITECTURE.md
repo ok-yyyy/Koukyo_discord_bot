@@ -37,7 +37,7 @@ cmd/bot/main.go
 ### 役割
 
 - 監視範囲のタイル取得と切り出し
-- テンプレートとの差分計算（差分率 / 加重差分率 / live・diff 画像の生成）
+- テンプレートとの差分計算（差分率 / live・diff 画像の生成）
 - 監視データ (`MonitorData`) と画像 (`ImageData`) の最新状態保持
 - 差分履歴、タイムラプスフレーム、日次サマリの蓄積
 
@@ -50,7 +50,6 @@ cmd/bot/main.go
 - テンプレート: `data/template_img/1818-806-989-358.png`（初回取得時に読み込み。失敗した場合は次回再試行）
 - 対象はテンプレートの不透明ピクセルのみ
 - **差分判定**: RGB 各チャンネルの差の合計が 45 超、またはアルファ差が 15 超
-- **加重差分**: `data/template_img/1818-806-989-358_kiku_only.webp` を菊マスクとして使い、菊全体と背景全体が同じ重みになるよう菊 1px を `背景px数 / 菊px数` 倍して算出。マスクが無い/サイズ不一致の場合は加重差分なし
 - **diff 画像**: 差分ピクセルを赤で着色（追加監視の差分画像と同じ）
 - 算出した diff 画像は `Tracker.EnqueueDiffImage` で ActivityTracker へ連携
 
@@ -69,7 +68,7 @@ cmd/bot/main.go
 - small diff（1..10px）専用フロー
 - 追加監視/進捗監視の定期比較
 - 日次サマリ、日次ランキング、タイムラプス自動配信
-- DM速報（ユーザー別・加重差分率 Tier 変動通知）
+- DM速報（ユーザー別・差分率 Tier 変動通知）
 
 ### ディスパッチ設計
 
@@ -94,7 +93,7 @@ cmd/bot/main.go
 - 各ユーザーは `dmUserState{lastTier, wasZero}` で Tier 状態を個別管理
 - 通知条件: `wasZero→nonzero`（検知）、`nonzero→0%`（完了）、Tier上昇・下降
 - 送信: `session.UserChannelCreate` で DM チャンネルを開き `ChannelMessageSend`
-- 常に `weighted` メトリクス・10% 閾値を使用
+- 差分率の 10% 閾値を使用
 
 ### Paint回復通知（手動予約）
 
@@ -202,7 +201,7 @@ cmd/bot/main.go
 - `achievements.json`
 - `watch_targets.json`
 - `progress_targets.json`
-- `template_img/*` (メイン監視テンプレート `1818-806-989-358.png` と菊のみマスク `1818-806-989-358_kiku_only.webp` を含む)
+- `template_img/*` (メイン監視テンプレート `1818-806-989-358.png` を含む)
 
 ## 主要テスト
 

@@ -1,7 +1,6 @@
 package notifications
 
 import (
-	"Koukyo_discord_bot/internal/monitor"
 	"fmt"
 	"math"
 )
@@ -23,13 +22,8 @@ const (
 	Tier100       // 100%以上
 )
 
-// getDiffValue 指標に応じた差分値を取得
-func getDiffValue(data *monitor.MonitorData, metric string) float64 {
-	if metric == "weighted" && data.WeightedDiffPercentage != nil {
-		return *data.WeightedDiffPercentage
-	}
-	return data.DiffPercentage
-}
+// metricLabel 通知文面で使う指標名
+const metricLabel = "差分率"
 
 // calculateTier 差分率からTierを計算
 func calculateTier(diffValue, threshold float64) Tier {

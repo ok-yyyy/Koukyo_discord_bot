@@ -22,7 +22,7 @@ func TestReferenceCompareThresholds(t *testing.T) {
 	base := color.NRGBA{R: 100, G: 100, B: 100, A: 255}
 	tmpl := solidNRGBA(6, 1, base)
 	tmpl.SetNRGBA(5, 0, color.NRGBA{}) // テンプレートの透明部分は対象外
-	ref, err := newReference(tmpl, nil)
+	ref, err := newReference(tmpl)
 	if err != nil {
 		t.Fatalf("newReference returned error: %v", err)
 	}
@@ -44,9 +44,6 @@ func TestReferenceCompareThresholds(t *testing.T) {
 	if res.data.DiffPercentage != 40 {
 		t.Fatalf("DiffPercentage mismatch: got %.2f", res.data.DiffPercentage)
 	}
-	if res.data.WeightedDiffPercentage != nil {
-		t.Fatalf("expected weighted diff to be disabled without mask")
-	}
 	for x, want := range []bool{false, false, true, false, true, false} {
 		if got := res.diff.NRGBAAt(x, 0).A != 0; got != want {
 			t.Fatalf("diff pixel x=%d: got %t want %t", x, got, want)
@@ -60,51 +57,30 @@ func TestReferenceCompareThresholds(t *testing.T) {
 	}
 }
 
-func TestReferenceCompareWeighted(t *testing.T) {
+func TestReferenceCompareErasedBlackPixel(t *testing.T) {
 	t.Parallel()
 
-	// 10px のうち左2pxが菊、残り8pxが背景。
-	tmpl := solidNRGBA(10, 1, color.NRGBA{A: 255})
-	mask := image.NewNRGBA(image.Rect(0, 0, 10, 1))
-	mask.SetNRGBA(0, 0, color.NRGBA{A: 255})
-	mask.SetNRGBA(1, 0, color.NRGBA{A: 255})
-	ref, err := newReference(tmpl, mask)
+	// 黒いピクセルを消すと RGB は (0,0,0) のまま透明になる。アルファ差で検出できること。
+	ref, err := newReference(solidNRGBA(2, 1, color.NRGBA{A: 255}))
 	if err != nil {
 		t.Fatalf("newReference returned error: %v", err)
 	}
-
-	live := solidNRGBA(10, 1, color.NRGBA{A: 255})
-	live.SetNRGBA(0, 0, color.NRGBA{R: 255, A: 255}) // 菊 1/2
-	live.SetNRGBA(9, 0, color.NRGBA{R: 255, A: 255}) // 背景 1/8
+	live := solidNRGBA(2, 1, color.NRGBA{A: 255})
+	live.SetNRGBA(1, 0, color.NRGBA{})
 
 	res, err := ref.compare(live)
 	if err != nil {
 		t.Fatalf("compare returned error: %v", err)
 	}
-	d := res.data
-	if d.DiffPixels != 2 || d.DiffPercentage != 20 {
-		t.Fatalf("unexpected overall diff: %+v", d)
-	}
-	if d.ChrysanthemumDiffPixels != 1 || d.BackgroundDiffPixels != 1 || d.ChrysanthemumTotalPixels != 2 || d.BackgroundTotalPixels != 8 {
-		t.Fatalf("unexpected split: %+v", d)
-	}
-	// 菊と背景が半分ずつの重み: (1/2 + 1/8) / 2 = 31.25%
-	if d.WeightedDiffPercentage == nil || *d.WeightedDiffPercentage != 31.25 {
-		t.Fatalf("WeightedDiffPercentage mismatch: got %v", d.WeightedDiffPercentage)
-	}
-	// 菊・背景のどちらの差分も同じ色で描く
-	if got := res.diff.NRGBAAt(0, 0); got != diffColor {
-		t.Fatalf("chrysanthemum diff color mismatch: %+v", got)
-	}
-	if got := res.diff.NRGBAAt(9, 0); got != diffColor {
-		t.Fatalf("background diff color mismatch: %+v", got)
+	if res.data.DiffPixels != 1 || res.data.DiffPercentage != 50 {
+		t.Fatalf("erased pixel was not detected: %+v", res.data)
 	}
 }
 
 func TestReferenceCompareSizeMismatch(t *testing.T) {
 	t.Parallel()
 
-	ref, err := newReference(solidNRGBA(2, 2, color.NRGBA{A: 255}), nil)
+	ref, err := newReference(solidNRGBA(2, 2, color.NRGBA{A: 255}))
 	if err != nil {
 		t.Fatalf("newReference returned error: %v", err)
 	}

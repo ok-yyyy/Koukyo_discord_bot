@@ -67,7 +67,7 @@ func buildExplanationEmbed(page int) *discordgo.MessageEmbed {
 			{
 				Name: "1) 監視データの入口",
 				Value: strings.Join([]string{
-					"- 5秒ごとに Wplace のタイルを取得してテンプレートと比較し、差分率/差分px/加重差分率を `MonitorState` に保存します。",
+					"- 5秒ごとに Wplace のタイルを取得してテンプレートと比較し、差分率/差分pxを `MonitorState` に保存します。",
 					"- 最新値(`LatestData`)と最新画像(`LatestImages`)が通知や /get に使われます。",
 				}, "\n"),
 				Inline: false,
@@ -76,7 +76,6 @@ func buildExplanationEmbed(page int) *discordgo.MessageEmbed {
 				Name: "2) メイン通知フロー",
 				Value: strings.Join([]string{
 					"- 1秒ごとに全ギルドの設定を見て、差分の Tier(10/20/.../100) 変化時のみ通知します。",
-					"- 指標は `差分率` / `加重差分率` をギルド設定で切り替えます。",
 					"- Pixel Perfect(0%) に戻ったときは修復完了通知を出します。",
 				}, "\n"),
 				Inline: false,
@@ -116,8 +115,7 @@ func buildExplanationEmbed(page int) *discordgo.MessageEmbed {
 				Value: strings.Join([]string{
 					"テンプレートの不透明ピクセルのうち、RGB差の合計が45超 または アルファ差が15超のものを差分とします。",
 					"- 差分率 / 差分px",
-					"- 加重差分率（菊全体と背景全体を同じ重みで計算）",
-					"- 菊/背景それぞれの差分pxと総px",
+					"- 監視対象の総px",
 					"",
 					"結果は `MonitorState.LatestData` に保存し、通知/統計/コマンドが参照します。",
 				}, "\n"),

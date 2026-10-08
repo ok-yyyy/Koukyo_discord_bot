@@ -45,7 +45,6 @@ type Monitor struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
 	templatePath string
-	maskPath     string
 	ref          *reference
 	mu           sync.RWMutex
 	tracker      *activity.Tracker
@@ -61,7 +60,6 @@ func NewMonitor(dataDir string) *Monitor {
 		ctx:          ctx,
 		cancel:       cancel,
 		templatePath: filepath.Join(dataDir, templateImageDirName, base+".png"),
-		maskPath:     filepath.Join(dataDir, templateImageDirName, base+"_kiku_only.webp"),
 	}
 }
 
@@ -191,9 +189,7 @@ func (m *Monitor) captureOnce() error {
 	m.mu.Lock()
 	m.lastCaptured = now
 	m.mu.Unlock()
-	monitorDebugf("Updated: Diff=%.2f%%, Weighted=%.2f%%",
-		result.data.DiffPercentage,
-		getWeightedValue(result.data.WeightedDiffPercentage))
+	monitorDebugf("Updated: Diff=%.2f%% (%dpx)", result.data.DiffPercentage, result.data.DiffPixels)
 	return nil
 }
 
@@ -205,12 +201,9 @@ func (m *Monitor) reference() (*reference, error) {
 	if ref != nil {
 		return ref, nil
 	}
-	ref, err := loadReference(m.templatePath, m.maskPath)
+	ref, err := loadReference(m.templatePath)
 	if err != nil {
 		return nil, err
-	}
-	if ref.chrysMask == nil {
-		log.Printf("Monitor weight mask unavailable (%s); weighted diff disabled", m.maskPath)
 	}
 	log.Printf("Monitor template loaded: %s size=%dx%d", m.templatePath, ref.img.Bounds().Dx(), ref.img.Bounds().Dy())
 	m.mu.Lock()
@@ -302,12 +295,4 @@ func (m *Monitor) IsHealthy() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return !m.lastCaptured.IsZero() && time.Since(m.lastCaptured) < captureStaleAfter
-}
-
-// getWeightedValue ポインタからfloat64を取得
-func getWeightedValue(p *float64) float64 {
-	if p == nil {
-		return 0
-	}
-	return *p
 }

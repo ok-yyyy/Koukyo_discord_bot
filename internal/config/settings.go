@@ -23,7 +23,6 @@ type GuildSettings struct {
 	NotificationThreshold     float64 `json:"notification_threshold"`                // 通知閾値（%）
 	MentionRole               *string `json:"mention_role,omitempty"`                // メンションロールID
 	MentionThreshold          float64 `json:"mention_threshold"`                     // メンション閾値（%）
-	NotificationMetric        string  `json:"notification_metric"`                   // 通知指標: "overall" or "weighted"
 }
 
 // DefaultGuildSettings デフォルト設定
@@ -32,7 +31,6 @@ var DefaultGuildSettings = GuildSettings{
 	ProgressNotifyEnabled: false,
 	NotificationThreshold: 10.0,
 	MentionThreshold:      50.0,
-	NotificationMetric:    "overall",
 }
 
 // SettingsManager 設定管理
@@ -277,15 +275,11 @@ func normalizeGuildSettings(settings GuildSettings) GuildSettings {
 	if settings.MentionThreshold > 0 {
 		normalized.MentionThreshold = settings.MentionThreshold
 	}
-	if settings.NotificationMetric == "overall" || settings.NotificationMetric == "weighted" {
-		normalized.NotificationMetric = settings.NotificationMetric
-	}
 	return normalized
 }
 
 func looksLikeLegacyNotificationSettings(settings GuildSettings) bool {
 	return !settings.AutoNotifyEnabled &&
 		settings.NotificationThreshold == 0 &&
-		settings.MentionThreshold == 0 &&
-		settings.NotificationMetric == ""
+		settings.MentionThreshold == 0
 }
