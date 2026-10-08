@@ -175,7 +175,7 @@ func BuildNowEmbed(mon *monitor.Monitor) *discordgo.MessageEmbed {
 					Inline: false,
 				},
 				{
-					Name:   "ℹ️ 接続状態",
+					Name:   "ℹ️ 取得状態",
 					Value:  getConnectionStatus(mon),
 					Inline: false,
 				},
@@ -292,15 +292,15 @@ func appendMainMonitorMapField(embed *discordgo.MessageEmbed) {
 	})
 }
 
-// getConnectionStatus 接続状態を取得
+// getConnectionStatus タイル取得の状態を取得
 func getConnectionStatus(mon *monitor.Monitor) string {
 	if mon == nil {
 		return "⚠️ モニター未初期化"
 	}
-	if mon.IsConnected() {
-		return "✅ WebSocketサーバーに接続中"
+	if mon.IsHealthy() {
+		return "✅ Wplaceからタイルを取得中"
 	}
-	return "⚠️ 接続試行中..."
+	return "⚠️ タイル取得を再試行中..."
 }
 
 // BuildStatusEmbed status コマンド用の詳細ステータス埋め込みを作成

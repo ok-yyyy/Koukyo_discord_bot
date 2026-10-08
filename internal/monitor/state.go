@@ -22,14 +22,11 @@ const (
 	zeroDiffHistoryInterval = 1 * time.Minute
 )
 
-// MonitorData WebSocketから受信する監視データ
+// MonitorData 監視データ
 type MonitorData struct {
-	Type                     string    `json:"type"`
-	Message                  string    `json:"message,omitempty"`
 	DiffPercentage           float64   `json:"diff_percentage"`
 	DiffPixels               int       `json:"diff_pixels"`
 	WeightedDiffPercentage   *float64  `json:"weighted_diff_percentage"`
-	WeightedDiffColor        string    `json:"weighted_diff_color,omitempty"`
 	ChrysanthemumDiffPixels  int       `json:"chrysanthemum_diff_pixels"`
 	BackgroundDiffPixels     int       `json:"background_diff_pixels"`
 	ChrysanthemumTotalPixels int       `json:"chrysanthemum_total_pixels"`

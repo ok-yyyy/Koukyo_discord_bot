@@ -489,10 +489,6 @@ func (w *watchTargetsRuntime) loadTemplate(templateRef string) (*watchTemplate, 
 	return loadTemplateCached(&w.mu, w.templateCache, w.dataDir, templateRef)
 }
 
-func (w *watchTargetsRuntime) loadTemplateFromDataDir(dataDir, filename string) (*watchTemplate, error) {
-	return loadTemplateFromDataDir(&w.mu, w.templateCache, dataDir, filename)
-}
-
 func parseWatchOrigin(value string) (*utils.Coordinate, error) {
 	parts := strings.Split(strings.TrimSpace(value), "-")
 	if len(parts) != 4 {

@@ -52,31 +52,21 @@ func main() {
 
 	// ユーザー活動トラッカーの初期化
 	activityTracker := activity.NewTracker(activity.Config{
-		TopLeftTileX:  1818,
-		TopLeftTileY:  806,
-		TopLeftPixelX: 989,
-		TopLeftPixelY: 358,
-		Width:         107,
-		Height:        142,
+		TopLeftTileX:  utils.MainMonitorTileX,
+		TopLeftTileY:  utils.MainMonitorTileY,
+		TopLeftPixelX: utils.MainMonitorPixelX,
+		TopLeftPixelY: utils.MainMonitorPixelY,
+		Width:         utils.MainMonitorWidth,
+		Height:        utils.MainMonitorHeight,
 	}, activityLimiter, dataDir)
 	activityTracker.Start()
 	defer activityTracker.Stop()
 
-	// WebSocket監視の開始
-	var mon *monitor.Monitor
-	if cfg.WebSocketURL != "" {
-		mon = monitor.NewMonitor(cfg.WebSocketURL)
-		mon.SetActivityTracker(activityTracker)
-
-		if err := mon.Start(); err != nil {
-			log.Printf("Failed to start monitor: %v", err)
-			log.Println("Continuing without monitor...")
-		} else {
-			log.Printf("Monitor started: %s", cfg.WebSocketURL)
-		}
-	} else {
-		log.Println("WEBSOCKET_URL not set, skipping monitor")
-	}
+	// 監視の開始
+	mon := monitor.NewMonitor(dataDir)
+	mon.SetActivityTracker(activityTracker)
+	mon.Start()
+	log.Println("Monitor started")
 
 	dg, err := discordgo.New("Bot " + cfg.Token)
 	if err != nil {
@@ -93,15 +83,10 @@ func main() {
 	dg.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsMessageContent | discordgo.IntentsGuilds
 
 	// 通知システムの初期化
-	var notifier *notifications.Notifier
-	if mon != nil {
-		notifier = notifications.NewNotifier(dg, mon, settingsManager, dataDir)
-		notifier.StartMonitoring()
-		log.Println("Notification system started")
-	}
-	if notifier != nil {
-		activityTracker.SetNewUserCallback(notifier.NotifyNewUser)
-	}
+	notifier := notifications.NewNotifier(dg, mon, settingsManager, dataDir)
+	notifier.StartMonitoring()
+	log.Println("Notification system started")
+	activityTracker.SetNewUserCallback(notifier.NotifyNewUser)
 
 	h := handler.NewHandler("!", botInfo, mon, settingsManager, notifier, limiter, activityLimiter, dataDir) // settingsManager を渡す
 	dg.AddHandler(h.OnReady)
@@ -125,9 +110,7 @@ func main() {
 	shutdownDone := make(chan struct{})
 	go func() {
 		h.Cleanup(dg)
-		if mon != nil {
-			mon.Stop()
-		}
+		mon.Stop()
 		dg.Close()
 		close(shutdownDone)
 	}()

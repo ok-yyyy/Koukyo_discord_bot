@@ -31,8 +31,6 @@ func (n *Notifier) StartMonitoring() {
 
 		// lastHeartbeat := time.Now()
 		for range ticker.C {
-			n.maybeRunStandaloneFallback(time.Now())
-
 			// Lightweight heartbeat to detect a stuck monitoring loop.
 			// if time.Since(lastHeartbeat) >= 60*time.Second {
 			// 	lastHeartbeat = time.Now()

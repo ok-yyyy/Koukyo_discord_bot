@@ -56,15 +56,6 @@ type Notifier struct {
 	droppedLowPriority       uint64
 	metricsMu                sync.Mutex
 	wplaceHealth             wplaceHealthState
-	standaloneMu             sync.Mutex
-	standaloneNextRun        time.Time
-	standaloneAttempts       int
-	standaloneActive         bool
-	standaloneStartedAt      time.Time
-	standaloneErrorCount     int
-	standaloneLastError      string
-	standaloneLastErrorAt    time.Time
-	standaloneLastErrorNotif time.Time
 	smallDiffCacheMu         sync.Mutex
 	smallDiffCacheTS         time.Time
 	smallDiffCacheDiffLen    int
