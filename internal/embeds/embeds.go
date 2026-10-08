@@ -12,58 +12,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// BuildInfoEmbed info コマンド用の埋め込みを作成
-func BuildInfoEmbed(botInfo *models.BotInfo) *discordgo.MessageEmbed {
-	embed := &discordgo.MessageEmbed{
-		Title:       "🏯 Wplace監視テンプレート情報",
-		Description: "テンプレート画像に基づく固定値です。（荒らし状況に依存しません）",
-		Color:       0xFFD700, // Gold
-		Fields: []*discordgo.MessageEmbedField{
-			{
-				Name:   "📐 総ピクセル数",
-				Value:  "10,354",
-				Inline: false,
-			},
-			{
-				Name:   "📊 最新受信値",
-				Value:  "10,354",
-				Inline: false,
-			},
-		},
-		Footer: &discordgo.MessageEmbedFooter{
-			Text: "Koukyo Discord Bot - Wplace監視システム",
-		},
-	}
-	return embed
-}
-
-// BuildTimeEmbed time コマンド用の埋め込みを作成
-func BuildTimeEmbed() *discordgo.MessageEmbed {
-	timezones := utils.GetCommonTimezones()
-	now := time.Now()
-
-	embed := &discordgo.MessageEmbed{
-		Title: "🌍 現在時刻",
-		Color: 0x3498DB, // Blue
-	}
-
-	for _, tz := range timezones {
-		timeStr := utils.FormatTimeInTimezone(now, tz.Location)
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   tz.Flag + " " + tz.Label,
-			Value:  timeStr,
-			Inline: false,
-		})
-	}
-
-	utcLoc, _ := time.LoadLocation("UTC")
-	embed.Footer = &discordgo.MessageEmbedFooter{
-		Text: "UTC: " + utils.FormatTimeInTimezone(now, utcLoc),
-	}
-
-	return embed
-}
-
 // BuildConvertLngLatEmbed 経度緯度 → ピクセル座標変換結果の埋め込みを作成
 func BuildConvertLngLatEmbed(lng, lat float64) *discordgo.MessageEmbed {
 	coord := utils.LngLatToTilePixel(lng, lat)
