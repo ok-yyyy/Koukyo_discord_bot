@@ -1,31 +1,11 @@
 services:
 
-  monitor:
-    build:
-      context: ./monitor
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    environment:
-      - REF_IMAGE_PATH=/app/template/1818-806-989-358.png
-      - WEIGHT_MASK_PATH=/app/template/1818-806-989-358_kiku_only.webp
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "1"
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./data/template_img:/app/template:ro
-
   discord-bot:
     build:
       context: .
       dockerfile: Dockerfile
     env_file:
       - .env
-    depends_on:
-      - monitor
     restart: unless-stopped
     logging:
       driver: "json-file"
@@ -33,4 +13,4 @@ services:
         max-size: "10m"
         max-file: "3"
     volumes:
-      - ./data:/app/data # 設定ファイルの永続化
+      - ./data:/app/data # 設定ファイル・テンプレート画像の永続化
