@@ -18,7 +18,7 @@ func NewDMCommand(settings *config.SettingsManager) *DMCommand {
 func (c *DMCommand) Name() string { return "dm" }
 
 func (c *DMCommand) Description() string {
-	return "Wplace差分速報のDM通知を有効/無効にします（加重差分率10%以上で通知）"
+	return "Wplace差分速報のDM通知を有効/無効にします（差分率10%以上で通知）"
 }
 
 func (c *DMCommand) ExecuteText(s *discordgo.Session, m *discordgo.MessageCreate, args []string) error {
@@ -71,7 +71,7 @@ func (c *DMCommand) handleAction(action, userID string, respond func(string) err
 	switch action {
 	case "on":
 		c.settings.SetUserDMEnabled(userID, true)
-		return respond("✅ DM速報を有効にしました。加重差分率が10%以上になったときにDMでお知らせします。")
+		return respond("✅ DM速報を有効にしました。差分率が10%以上になったときにDMでお知らせします。")
 	case "off":
 		c.settings.SetUserDMEnabled(userID, false)
 		return respond("✅ DM速報を無効にしました。")

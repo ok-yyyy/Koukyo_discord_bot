@@ -86,14 +86,6 @@ func countOpaque(templateImg *image.NRGBA) int {
 	return count
 }
 
-func decodePNGToNRGBA(pngBytes []byte) (*image.NRGBA, error) {
-	img, err := png.Decode(bytes.NewReader(pngBytes))
-	if err != nil {
-		return nil, err
-	}
-	return toNRGBAImage(img), nil
-}
-
 func encodePNG(img image.Image) ([]byte, error) {
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {

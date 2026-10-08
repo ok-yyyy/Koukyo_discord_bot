@@ -3,7 +3,7 @@
 ## 概要
 
 本Botは `wplace` の監視データを Discord へ通知する Go 実装です。  
-主経路は WebSocket 監視で、断線時には HTTP poll / standalone 比較へ段階フォールバックします。
+Bot 自身が wplace のタイルを定期取得し、テンプレート画像と比較して差分を算出します。
 
 監視・通知・活動集計を分離し、どこかの処理が遅延しても監視ループを止めない設計を採用しています。
 
@@ -11,7 +11,7 @@
 
 ```
 cmd/bot/main.go
-  -> internal/monitor        WS受信 / 監視状態 / 履歴
+  -> internal/monitor        タイル取得 / 差分計算 / 監視状態 / 履歴
   -> internal/notifications  通知判定 / Discord送信 / 日次配信
   -> internal/activity       diff画像ベースのユーザー活動推定
   -> internal/handler        コマンドルーティング
@@ -25,33 +25,36 @@ cmd/bot/main.go
 
 1. `cmd/bot/main.go` で設定読込と Discord セッション初期化。
 2. 監視用と活動API用の `RateLimiter` をそれぞれ初期化（既定 2 RPS）。
-3. `Monitor` 起動（WS受信ループ群）。
+3. `Monitor` 起動（タイル取得ループ）。
 4. `Notifier.StartMonitoring()` 起動（通知判定/配信ループ群）。
 5. `Tracker.Start()` 起動（diff解析/活動集計）。
 6. スラッシュコマンド同期後、Discord 受信開始。
 
 ## Monitor 層
 
-主要ファイル: `internal/monitor/monitor.go`, `internal/monitor/state.go`
+主要ファイル: `internal/monitor/monitor.go`, `internal/monitor/reference.go`, `internal/monitor/state.go`
 
 ### 役割
 
-- WebSocket テキスト/バイナリの取り込み
+- 監視範囲のタイル取得と切り出し
+- テンプレートとの差分計算（差分率 / live・diff 画像の生成）
 - 監視データ (`MonitorData`) と画像 (`ImageData`) の最新状態保持
 - 差分履歴、タイムラプスフレーム、日次サマリの蓄積
-- 無受信監視と再接続、断時フォールバック
 
 ### 常駐ループ
 
-- `receiveLoop` 受信本体（切断時は指数バックオフで再接続）
-- `pingLoop` WS ping
-- `keepaliveLoop` keepalive 送信
-- `idleWatchLoop` 無受信監視（長時間停止を検知）
-- `pollFallbackLoop` WS断継続時の HTTP 取得
+- `captureLoop` **5 秒**間隔でタイルを取得して比較（失敗時は指数バックオフ、最大 1 分）
+
+### 差分計算 (`reference.go`)
+
+- テンプレート: `data/template_img/1818-806-989-358.png`（初回取得時に読み込み。失敗した場合は次回再試行）
+- 対象はテンプレートの不透明ピクセルのみ
+- **差分判定**: RGB 各チャンネルの差の合計が 45 超、またはアルファ差が 15 超
+- **diff 画像**: 差分ピクセルを赤で着色（追加監視の差分画像と同じ）
+- 算出した diff 画像は `Tracker.EnqueueDiffImage` で ActivityTracker へ連携
 
 ### 実装ポイント
 
-- テキスト受信は `monitorTextPayload` に単一 `json.Unmarshal`。
 - `MonitorState` は `RWMutex` 保護。
 - 日次関連は JST キーで保存。
 
@@ -65,7 +68,7 @@ cmd/bot/main.go
 - small diff（1..10px）専用フロー
 - 追加監視/進捗監視の定期比較
 - 日次サマリ、日次ランキング、タイムラプス自動配信
-- DM速報（ユーザー別・加重差分率 Tier 変動通知）
+- DM速報（ユーザー別・差分率 Tier 変動通知）
 
 ### ディスパッチ設計
 
@@ -81,18 +84,6 @@ cmd/bot/main.go
 - URL は `/me` 系と同じ高倍率ロジックを利用
 - 差分率 0% が 10 分継続すると編集先メッセージ追跡をリセット
 
-### Standalone フォールバック
-
-主要ファイル: `internal/notifications/notifier_standalone_fallback.go`
-
-WS が 1 分以上断線した場合（または `MONITOR_FORCE_STANDALONE=1`）に自動起動するポーリングモード。
-
-- ポーリング間隔: **2 秒**（成功後も 2 秒待機、失敗時は指数バックオフ最大 5 分）
-- テンプレートで差分 (`DiffPixels`, `DiffPercentage`) を計算して `MonitorData` を更新
-- **加重差分**: `data/1818-806-989-358_kiku_only.webp` を `loadTemplateFromDataDir` で読み込み、同 diff 画像から菊のみ差分を算出し `WeightedDiffPercentage` / `ChrysanthemumDiffPixels` に格納
-- 算出した diff 画像を `monitor.EnqueueDiffImageToTracker` 経由で ActivityTracker へ連携
-- 復帰時はギルドの通知チャンネルへ状態変化を通知
-
 ### DM速報フロー
 
 主要ファイル: `internal/notifications/notifier_dm.go`
@@ -102,7 +93,7 @@ WS が 1 分以上断線した場合（または `MONITOR_FORCE_STANDALONE=1`）
 - 各ユーザーは `dmUserState{lastTier, wasZero}` で Tier 状態を個別管理
 - 通知条件: `wasZero→nonzero`（検知）、`nonzero→0%`（完了）、Tier上昇・下降
 - 送信: `session.UserChannelCreate` で DM チャンネルを開き `ChannelMessageSend`
-- 常に `weighted` メトリクス・10% 閾値を使用
+- 差分率の 10% 閾値を使用
 
 ### Paint回復通知（手動予約）
 
@@ -210,8 +201,7 @@ WS が 1 分以上断線した場合（または `MONITOR_FORCE_STANDALONE=1`）
 - `achievements.json`
 - `watch_targets.json`
 - `progress_targets.json`
-- `template_img/*`
-- `1818-806-989-358_kiku_only.webp` (Standalone 加重差分用・菊のみテンプレート)
+- `template_img/*` (メイン監視テンプレート `1818-806-989-358.png` を含む)
 
 ## 主要テスト
 

@@ -215,46 +215,6 @@ func parseTargetConfigs(raw []byte, defaultInterval time.Duration) ([]commonTarg
 	return nil, fmt.Errorf("targets json format is invalid")
 }
 
-// loadTemplateFromDataDir はテンプレートファイルを data/ 直下から読み込みキャッシュする。
-// template_img/ サブディレクトリを使わずに直接ファイル名で指定する。
-func loadTemplateFromDataDir(mu *sync.Mutex, cache map[string]*watchTemplateCacheEntry, dataDir, filename string) (*watchTemplate, error) {
-	fullPath := filepath.Clean(filepath.Join(dataDir, filename))
-	info, err := os.Stat(fullPath)
-	if err != nil {
-		return nil, fmt.Errorf("template not found: %s", filename)
-	}
-	mu.Lock()
-	if entry, ok := cache[fullPath]; ok && entry.ModTime.Equal(info.ModTime()) {
-		mu.Unlock()
-		return entry.Template, nil
-	}
-	mu.Unlock()
-	f, err := os.Open(fullPath)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	img, _, err := image.Decode(f)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode template: %s", filename)
-	}
-	nrgba := toNRGBAImage(img)
-	opaque := countOpaque(nrgba)
-	if opaque == 0 {
-		return nil, fmt.Errorf("template has no opaque pixels: %s", filename)
-	}
-	t := &watchTemplate{
-		Img:         nrgba,
-		Width:       nrgba.Bounds().Dx(),
-		Height:      nrgba.Bounds().Dy(),
-		OpaqueCount: opaque,
-	}
-	mu.Lock()
-	cache[fullPath] = &watchTemplateCacheEntry{Template: t, ModTime: info.ModTime()}
-	mu.Unlock()
-	return t, nil
-}
-
 func loadTemplateCached(mu *sync.Mutex, cache map[string]*watchTemplateCacheEntry, dataDir, templateRef string) (*watchTemplate, error) {
 	templatePath, err := resolveTemplatePath(dataDir, templateRef)
 	if err != nil {

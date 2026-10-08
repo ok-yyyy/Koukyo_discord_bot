@@ -56,15 +56,6 @@ type Notifier struct {
 	droppedLowPriority       uint64
 	metricsMu                sync.Mutex
 	wplaceHealth             wplaceHealthState
-	standaloneMu             sync.Mutex
-	standaloneNextRun        time.Time
-	standaloneAttempts       int
-	standaloneActive         bool
-	standaloneStartedAt      time.Time
-	standaloneErrorCount     int
-	standaloneLastError      string
-	standaloneLastErrorAt    time.Time
-	standaloneLastErrorNotif time.Time
 	smallDiffCacheMu         sync.Mutex
 	smallDiffCacheTS         time.Time
 	smallDiffCacheDiffLen    int
@@ -353,7 +344,7 @@ func (n *Notifier) CheckAndNotify(guildID string) {
 	}
 
 	// 通知指標の値を取得
-	diffValue := getDiffValue(data, settings.NotificationMetric)
+	diffValue := data.DiffPercentage
 	isZero := isZeroDiff(diffValue)
 	currentTier := calculateTier(diffValue, settings.NotificationThreshold)
 	state := n.getState(guildID)
@@ -383,10 +374,6 @@ func (n *Notifier) handleSmallDiff(
 	isZero bool,
 ) bool {
 	if !state.LargeDiffActive && data.DiffPixels > 0 && data.DiffPixels <= smallDiffPixelLimit {
-		metricLabel := "差分率"
-		if settings.NotificationMetric == "weighted" {
-			metricLabel = "加重差分率"
-		}
 		content := fmt.Sprintf(
 			"🔔 【Wplace速報】変化検知 %s: **%.2f%%**に上昇(%d/%d px)",
 			metricLabel,
@@ -449,10 +436,6 @@ func (n *Notifier) handleStandardNotification(
 
 	if !state.WasZeroDiff && isZero {
 		if state.SmallDiffActive && !state.LargeDiffActive {
-			metricLabel := "差分率"
-			if settings.NotificationMetric == "weighted" {
-				metricLabel = "加重差分率"
-			}
 			content := fmt.Sprintf("✅ 【Wplace速報】修復完了！ %s: 0.00%% # Pixel Perfect!", metricLabel)
 			n.upsertSmallDiffMessage(*settings.NotificationChannel, state, content, true)
 			return
@@ -499,11 +482,6 @@ func (n *Notifier) sendLargeDiffTransitionSnapshot(
 	}
 	channelID := *settings.NotificationChannel
 
-	metricLabel := "差分率"
-	if settings.NotificationMetric == "weighted" {
-		metricLabel = "加重差分率"
-	}
-
 	message := fmt.Sprintf("🔔 【Wplace速報】変化検知 %s: **%.2f%%**に上昇(%d/%d px)", metricLabel, diffValue, data.DiffPixels, data.TotalPixels)
 
 	embed := &discordgo.MessageEmbed{
@@ -528,23 +506,9 @@ func (n *Notifier) sendLargeDiffTransitionSnapshot(
 		},
 	}
 
-	if data.WeightedDiffPercentage != nil {
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   "🔍 加重差分率 (菊重視)",
-			Value:  fmt.Sprintf("%.2f%%", *data.WeightedDiffPercentage),
-			Inline: true,
-		})
-	}
-	if data.ChrysanthemumDiffPixels > 0 || data.BackgroundDiffPixels > 0 {
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   "🔍 差分ピクセル (菊/背景)",
-			Value:  fmt.Sprintf("菊 %d / %d | 背景 %d / %d", data.ChrysanthemumDiffPixels, data.ChrysanthemumTotalPixels, data.BackgroundDiffPixels, data.BackgroundTotalPixels),
-			Inline: false,
-		})
-	}
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 		Name:   "📐 監視ピクセル数",
-		Value:  fmt.Sprintf("全体 %d | 菊 %d | 背景 %d", data.TotalPixels, data.ChrysanthemumTotalPixels, data.BackgroundTotalPixels),
+		Value:  fmt.Sprintf("%d", data.TotalPixels),
 		Inline: false,
 	})
 	appendCurrentDiffUserSummaryField(n, embed)
@@ -592,11 +556,6 @@ func (n *Notifier) sendNotification(
 	mentionStr := ""
 	if diffValue >= settings.MentionThreshold && settings.MentionRole != nil {
 		mentionStr = fmt.Sprintf("<@&%s> ", *settings.MentionRole)
-	}
-
-	metricLabel := "差分率"
-	if settings.NotificationMetric == "weighted" {
-		metricLabel = "加重差分率"
 	}
 
 	var tierDesc string
@@ -655,25 +614,9 @@ func (n *Notifier) sendNotification(
 		},
 	}
 
-	if data.WeightedDiffPercentage != nil {
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   "🔍 加重差分率 (菊重視)",
-			Value:  fmt.Sprintf("%.2f%%", *data.WeightedDiffPercentage),
-			Inline: true,
-		})
-	}
-
-	if data.ChrysanthemumDiffPixels > 0 || data.BackgroundDiffPixels > 0 {
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   "🔍 差分ピクセル (菊/背景)",
-			Value:  fmt.Sprintf("菊 %d / %d | 背景 %d / %d", data.ChrysanthemumDiffPixels, data.ChrysanthemumTotalPixels, data.BackgroundDiffPixels, data.BackgroundTotalPixels),
-			Inline: false,
-		})
-	}
-
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 		Name:   "📐 監視ピクセル数",
-		Value:  fmt.Sprintf("全体 %d | 菊 %d | 背景 %d", data.TotalPixels, data.ChrysanthemumTotalPixels, data.BackgroundTotalPixels),
+		Value:  fmt.Sprintf("%d", data.TotalPixels),
 		Inline: false,
 	})
 	appendCurrentDiffUserSummaryField(n, embed)
@@ -720,11 +663,6 @@ func (n *Notifier) sendDecreaseNotification(
 ) {
 	channelID := *settings.NotificationChannel
 
-	metricLabel := "差分率"
-	if settings.NotificationMetric == "weighted" {
-		metricLabel = "加重差分率"
-	}
-
 	tierLabel := tierRangeLabel(tier, settings.NotificationThreshold)
 	message := fmt.Sprintf(
 		"【Wplace速報】 %sが%sまで減少しました。[現在%.2f%%]",
@@ -755,25 +693,9 @@ func (n *Notifier) sendDecreaseNotification(
 		},
 	}
 
-	if data.WeightedDiffPercentage != nil {
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   "🔍 加重差分率 (菊重視)",
-			Value:  fmt.Sprintf("%.2f%%", *data.WeightedDiffPercentage),
-			Inline: true,
-		})
-	}
-
-	if data.ChrysanthemumDiffPixels > 0 || data.BackgroundDiffPixels > 0 {
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   "🔍 差分ピクセル (菊/背景)",
-			Value:  fmt.Sprintf("菊 %d / %d | 背景 %d / %d", data.ChrysanthemumDiffPixels, data.ChrysanthemumTotalPixels, data.BackgroundDiffPixels, data.BackgroundTotalPixels),
-			Inline: false,
-		})
-	}
-
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 		Name:   "📐 監視ピクセル数",
-		Value:  fmt.Sprintf("全体 %d | 菊 %d | 背景 %d", data.TotalPixels, data.ChrysanthemumTotalPixels, data.BackgroundTotalPixels),
+		Value:  fmt.Sprintf("%d", data.TotalPixels),
 		Inline: false,
 	})
 	appendCurrentDiffUserSummaryField(n, embed)
@@ -819,11 +741,6 @@ func (n *Notifier) sendZeroRecoveryNotification(
 ) {
 	channelID := *settings.NotificationChannel
 
-	metricLabel := "差分率"
-	if settings.NotificationMetric == "weighted" {
-		metricLabel = "加重差分率"
-	}
-
 	message := fmt.Sprintf("🔔 【Wplace速報】変化検知 %s: **%.2f%%**に上昇", metricLabel, diffValue)
 
 	embed := &discordgo.MessageEmbed{
@@ -848,25 +765,9 @@ func (n *Notifier) sendZeroRecoveryNotification(
 		},
 	}
 
-	if data.WeightedDiffPercentage != nil {
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   "🔍 加重差分率 (菊重視)",
-			Value:  fmt.Sprintf("%.2f%%", *data.WeightedDiffPercentage),
-			Inline: true,
-		})
-	}
-
-	if data.ChrysanthemumDiffPixels > 0 || data.BackgroundDiffPixels > 0 {
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   "🔍 差分ピクセル (菊/背景)",
-			Value:  fmt.Sprintf("菊 %d / %d | 背景 %d / %d", data.ChrysanthemumDiffPixels, data.ChrysanthemumTotalPixels, data.BackgroundDiffPixels, data.BackgroundTotalPixels),
-			Inline: false,
-		})
-	}
-
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 		Name:   "📐 監視ピクセル数",
-		Value:  fmt.Sprintf("全体 %d | 菊 %d | 背景 %d", data.TotalPixels, data.ChrysanthemumTotalPixels, data.BackgroundTotalPixels),
+		Value:  fmt.Sprintf("%d", data.TotalPixels),
 		Inline: false,
 	})
 	appendCurrentDiffUserSummaryField(n, embed)
@@ -911,11 +812,6 @@ func (n *Notifier) sendZeroCompletionNotification(
 ) {
 	channelID := *settings.NotificationChannel
 
-	metricLabel := "差分率"
-	if settings.NotificationMetric == "weighted" {
-		metricLabel = "加重差分率"
-	}
-
 	message := fmt.Sprintf("✅ 【Wplace速報】修復完了！ %s: **0.00%%** # Pixel Perfect!", metricLabel)
 
 	embed := &discordgo.MessageEmbed{
@@ -940,17 +836,9 @@ func (n *Notifier) sendZeroCompletionNotification(
 		},
 	}
 
-	if data.WeightedDiffPercentage != nil {
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   "🔍 加重差分率 (菊重視)",
-			Value:  "0.00%",
-			Inline: true,
-		})
-	}
-
 	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 		Name:   "📐 監視ピクセル数",
-		Value:  fmt.Sprintf("全体 %d | 菊 %d | 背景 %d", data.TotalPixels, data.ChrysanthemumTotalPixels, data.BackgroundTotalPixels),
+		Value:  fmt.Sprintf("%d", data.TotalPixels),
 		Inline: false,
 	})
 	appendCurrentDiffUserSummaryField(n, embed)

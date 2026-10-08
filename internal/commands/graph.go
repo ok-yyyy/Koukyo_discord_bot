@@ -33,7 +33,7 @@ func (c *GraphCommand) Description() string {
 }
 
 // executeDiff は、差分率グラフ生成の共通ロジック
-func (c *GraphCommand) executeDiff(metric string, duration time.Duration) (*discordgo.MessageEmbed, *bytes.Buffer, error) {
+func (c *GraphCommand) executeDiff(duration time.Duration) (*discordgo.MessageEmbed, *bytes.Buffer, error) {
 	if c.mon == nil {
 		return nil, nil, fmt.Errorf("graphでエラーが発生しました: 監視システムが初期化されていません。")
 	}
@@ -41,17 +41,13 @@ func (c *GraphCommand) executeDiff(metric string, duration time.Duration) (*disc
 		return nil, nil, fmt.Errorf("graphでエラーが発生しました: 監視データがまだ受信できていません。")
 	}
 
-	weighted := (metric == "weighted")
-	history := c.mon.State.GetDiffHistory(duration, weighted)
+	history := c.mon.State.GetDiffHistory(duration)
 	pngBuf, err := embeds.BuildDiffGraphPNG(history)
 	if err != nil {
 		return nil, nil, fmt.Errorf("グラフ生成に失敗しました: %w", err)
 	}
 
 	title := "差分率グラフ"
-	if weighted {
-		title = "加重差分率グラフ"
-	}
 	nowJST := time.Now().In(commandJST)
 	embed := &discordgo.MessageEmbed{
 		Title:       title,
@@ -97,18 +93,12 @@ func (c *GraphCommand) executeVandal(duration time.Duration) (*discordgo.Message
 
 func (c *GraphCommand) ExecuteText(s *discordgo.Session, m *discordgo.MessageCreate, args []string) error {
 	graphType := "diff"
-	metric := "overall"
 	duration := 1 * time.Hour
 
-	// 引数: type=diff|vandal, metric=overall|weighted, duration=30m|1h|6h|24h
+	// 引数: type=diff|vandal, duration=30m|1h|6h|24h
 	for _, a := range args {
 		if strings.HasPrefix(a, "type=") {
 			graphType = strings.TrimPrefix(a, "type=")
-		} else if strings.HasPrefix(a, "metric=") {
-			v := strings.TrimPrefix(a, "metric=")
-			if v == "weighted" {
-				metric = "weighted"
-			}
 		} else if strings.HasPrefix(a, "duration=") {
 			v := strings.TrimPrefix(a, "duration=")
 			if d, err := parseDuration(v); err == nil {
@@ -125,7 +115,7 @@ func (c *GraphCommand) ExecuteText(s *discordgo.Session, m *discordgo.MessageCre
 	if graphType == "vandal" {
 		embed, pngBuf, err = c.executeVandal(duration)
 	} else {
-		embed, pngBuf, err = c.executeDiff(metric, duration)
+		embed, pngBuf, err = c.executeDiff(duration)
 	}
 	if err != nil {
 		_, e := s.ChannelMessageSend(m.ChannelID, err.Error())
@@ -149,18 +139,12 @@ func (c *GraphCommand) ExecuteText(s *discordgo.Session, m *discordgo.MessageCre
 
 func (c *GraphCommand) ExecuteSlash(s *discordgo.Session, i *discordgo.InteractionCreate) error {
 	graphType := "diff"
-	metric := "overall"
 	duration := 1 * time.Hour
 	opts := i.ApplicationCommandData().Options
 	for _, opt := range opts {
 		switch opt.Name {
 		case "type":
 			graphType = opt.StringValue()
-		case "metric":
-			v := opt.StringValue()
-			if v == "weighted" {
-				metric = "weighted"
-			}
 		case "duration":
 			v := opt.StringValue()
 			if d, err := parseDuration(v); err == nil {
@@ -177,7 +161,7 @@ func (c *GraphCommand) ExecuteSlash(s *discordgo.Session, i *discordgo.Interacti
 	if graphType == "vandal" {
 		embed, pngBuf, err = c.executeVandal(duration)
 	} else {
-		embed, pngBuf, err = c.executeDiff(metric, duration)
+		embed, pngBuf, err = c.executeDiff(duration)
 	}
 	if err != nil {
 		return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -215,16 +199,6 @@ func (c *GraphCommand) SlashDefinition() *discordgo.ApplicationCommand {
 				Choices: []*discordgo.ApplicationCommandOptionChoice{
 					{Name: "diff", Value: "diff"},
 					{Name: "vandal", Value: "vandal"},
-				},
-			},
-			{
-				Type:        discordgo.ApplicationCommandOptionString,
-				Name:        "metric",
-				Description: "指標: overall | weighted",
-				Required:    false,
-				Choices: []*discordgo.ApplicationCommandOptionChoice{
-					{Name: "overall", Value: "overall"},
-					{Name: "weighted", Value: "weighted"},
 				},
 			},
 			{

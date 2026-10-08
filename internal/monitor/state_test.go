@@ -20,7 +20,7 @@ func TestGetDiffHistorySkipsZeroTimestamp(t *testing.T) {
 	r = r.Next()
 	r.Value = DiffRecord{Timestamp: now.Add(-2 * time.Minute), Percentage: 2.0}
 
-	recent := ms.GetDiffHistory(10*time.Minute, false)
+	recent := ms.GetDiffHistory(10 * time.Minute)
 	if len(recent) != 1 {
 		t.Fatalf("expected 1 recent record, got %d", len(recent))
 	}
@@ -31,7 +31,7 @@ func TestGetDiffHistorySkipsZeroTimestamp(t *testing.T) {
 		t.Fatalf("unexpected recent percentage: %.2f", recent[0].Percentage)
 	}
 
-	all := ms.GetDiffHistory(0, false)
+	all := ms.GetDiffHistory(0)
 	if len(all) != 2 {
 		t.Fatalf("expected 2 non-zero records, got %d", len(all))
 	}

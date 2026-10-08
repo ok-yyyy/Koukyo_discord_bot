@@ -32,13 +32,8 @@ func (c *PredictCommand) Description() string {
 }
 
 func (c *PredictCommand) ExecuteText(s *discordgo.Session, m *discordgo.MessageCreate, args []string) error {
-	metric := "overall"
 	duration := predictDefaultDuration
 	for _, a := range args {
-		if strings.HasPrefix(a, "metric=") {
-			metric = strings.TrimSpace(strings.TrimPrefix(a, "metric="))
-			continue
-		}
 		if strings.HasPrefix(a, "duration=") {
 			raw := strings.TrimSpace(strings.TrimPrefix(a, "duration="))
 			d, err := parseDuration(raw)
@@ -50,7 +45,7 @@ func (c *PredictCommand) ExecuteText(s *discordgo.Session, m *discordgo.MessageC
 		}
 	}
 
-	embed, err := c.buildPredictionEmbed(metric, duration)
+	embed, err := c.buildPredictionEmbed(duration)
 	if err != nil {
 		_, sendErr := s.ChannelMessageSend(m.ChannelID, err.Error())
 		return sendErr
@@ -60,13 +55,10 @@ func (c *PredictCommand) ExecuteText(s *discordgo.Session, m *discordgo.MessageC
 }
 
 func (c *PredictCommand) ExecuteSlash(s *discordgo.Session, i *discordgo.InteractionCreate) error {
-	metric := "overall"
 	duration := predictDefaultDuration
 
 	for _, opt := range i.ApplicationCommandData().Options {
 		switch opt.Name {
-		case "metric":
-			metric = opt.StringValue()
 		case "duration":
 			d, err := parseDuration(opt.StringValue())
 			if err != nil || d <= 0 {
@@ -82,7 +74,7 @@ func (c *PredictCommand) ExecuteSlash(s *discordgo.Session, i *discordgo.Interac
 		}
 	}
 
-	embed, err := c.buildPredictionEmbed(metric, duration)
+	embed, err := c.buildPredictionEmbed(duration)
 	if err != nil {
 		return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -108,16 +100,6 @@ func (c *PredictCommand) SlashDefinition() *discordgo.ApplicationCommand {
 		Options: []*discordgo.ApplicationCommandOption{
 			{
 				Type:        discordgo.ApplicationCommandOptionString,
-				Name:        "metric",
-				Description: "予測に使う指標",
-				Required:    false,
-				Choices: []*discordgo.ApplicationCommandOptionChoice{
-					{Name: "overall", Value: "overall"},
-					{Name: "weighted", Value: "weighted"},
-				},
-			},
-			{
-				Type:        discordgo.ApplicationCommandOptionString,
 				Name:        "duration",
 				Description: "観測窓 (例: 10m, 30m, 1h, 3h, 6h, 24h)",
 				Required:    false,
@@ -134,7 +116,7 @@ func (c *PredictCommand) SlashDefinition() *discordgo.ApplicationCommand {
 	}
 }
 
-func (c *PredictCommand) buildPredictionEmbed(metric string, duration time.Duration) (*discordgo.MessageEmbed, error) {
+func (c *PredictCommand) buildPredictionEmbed(duration time.Duration) (*discordgo.MessageEmbed, error) {
 	if c.mon == nil {
 		return nil, fmt.Errorf("❌ predictでエラーが発生しました: 監視システムが初期化されていません。")
 	}
@@ -147,15 +129,14 @@ func (c *PredictCommand) buildPredictionEmbed(metric string, duration time.Durat
 		return nil, fmt.Errorf("❌ predictでエラーが発生しました: 監視データが取得できませんでした。")
 	}
 
-	useWeighted := strings.EqualFold(strings.TrimSpace(metric), "weighted")
-	current, metricLabel, fallbackToOverall := predictMetricCurrent(data, useWeighted)
-	history := c.mon.State.GetDiffHistory(duration, useWeighted && !fallbackToOverall)
+	current := data.DiffPercentage
+	history := c.mon.State.GetDiffHistory(duration)
 	history = sanitizePredictHistory(history)
 
 	nowJST := time.Now().In(commandJST)
 	embed := &discordgo.MessageEmbed{
 		Title:       "🔮 修復予測",
-		Description: fmt.Sprintf("現在の%sと直近データから、完全修復(0.00%%)までの時間を推定します。", metricLabel),
+		Description: "現在の差分率と直近データから、完全修復(0.00%)までの時間を推定します。",
 		Color:       0x3498DB,
 		Timestamp:   nowJST.Format(time.RFC3339),
 		Fields: []*discordgo.MessageEmbedField{
@@ -175,14 +156,6 @@ func (c *PredictCommand) buildPredictionEmbed(metric string, duration time.Durat
 				Inline: true,
 			},
 		},
-	}
-
-	if fallbackToOverall {
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   "注記",
-			Value:  "weighted が未提供のため overall 差分率で推定しました。",
-			Inline: false,
-		})
 	}
 
 	if current <= 0.005 {
@@ -245,7 +218,7 @@ func (c *PredictCommand) buildPredictionEmbed(metric string, duration time.Durat
 		},
 	)
 
-	if !useWeighted && data.TotalPixels > 0 {
+	if data.TotalPixels > 0 {
 		pxPerMinute := speedPerMinute * float64(data.TotalPixels) / 100.0
 		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 			Name:   "推定修復速度 (px)",
@@ -255,16 +228,6 @@ func (c *PredictCommand) buildPredictionEmbed(metric string, duration time.Durat
 	}
 
 	return embed, nil
-}
-
-func predictMetricCurrent(data *monitor.MonitorData, preferWeighted bool) (value float64, label string, fallback bool) {
-	if preferWeighted {
-		if data.WeightedDiffPercentage != nil {
-			return *data.WeightedDiffPercentage, "加重差分率", false
-		}
-		return data.DiffPercentage, "差分率", true
-	}
-	return data.DiffPercentage, "差分率", false
 }
 
 func sanitizePredictHistory(history []monitor.DiffRecord) []monitor.DiffRecord {

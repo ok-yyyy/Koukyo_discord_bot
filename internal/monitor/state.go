@@ -22,20 +22,12 @@ const (
 	zeroDiffHistoryInterval = 1 * time.Minute
 )
 
-// MonitorData WebSocketから受信する監視データ
+// MonitorData 監視データ
 type MonitorData struct {
-	Type                     string    `json:"type"`
-	Message                  string    `json:"message,omitempty"`
-	DiffPercentage           float64   `json:"diff_percentage"`
-	DiffPixels               int       `json:"diff_pixels"`
-	WeightedDiffPercentage   *float64  `json:"weighted_diff_percentage"`
-	WeightedDiffColor        string    `json:"weighted_diff_color,omitempty"`
-	ChrysanthemumDiffPixels  int       `json:"chrysanthemum_diff_pixels"`
-	BackgroundDiffPixels     int       `json:"background_diff_pixels"`
-	ChrysanthemumTotalPixels int       `json:"chrysanthemum_total_pixels"`
-	BackgroundTotalPixels    int       `json:"background_total_pixels"`
-	TotalPixels              int       `json:"total_pixels"`
-	Timestamp                time.Time `json:"-"`
+	DiffPercentage float64
+	DiffPixels     int
+	TotalPixels    int
+	Timestamp      time.Time
 }
 
 // ImageData 画像データ
@@ -47,14 +39,11 @@ type ImageData struct {
 
 // MonitorState 現在の監視状態
 type MonitorState struct {
-	LatestData           *MonitorData
-	LatestImages         *ImageData
-	DiffHistory          *ring.Ring
-	WeightedDiffHistory  *ring.Ring
-	DiffHistoryCount     int
-	WeightedHistoryCount int
-	ReferencePixels      ReferencePixels
-	lastZeroHistoryAt    time.Time
+	LatestData        *MonitorData
+	LatestImages      *ImageData
+	DiffHistory       *ring.Ring
+	DiffHistoryCount  int
+	lastZeroHistoryAt time.Time
 	// Timelapse recording
 	TimelapseActive      bool
 	TimelapseFrames      *ring.Ring
@@ -99,10 +88,9 @@ type DailyMetricSummary struct {
 	Count    int
 }
 
-// DailySummary represents per-day aggregates for overall/weighted diff.
+// DailySummary represents per-day aggregates for the diff percentage.
 type DailySummary struct {
-	Overall  DailyMetricSummary
-	Weighted DailyMetricSummary
+	Overall DailyMetricSummary
 }
 
 // TimelapseFrame タイムラプスのフレーム（差分/ライブ画像を保持）
@@ -112,22 +100,14 @@ type TimelapseFrame struct {
 	LivePNG   []byte
 }
 
-// ReferencePixels 基準ピクセル数
-type ReferencePixels struct {
-	Total         int
-	Chrysanthemum int
-	Background    int
-}
-
 // NewMonitorState 新しい監視状態を作成
 func NewMonitorState() *MonitorState {
 	ctx, cancel := context.WithCancel(context.Background())
 	ms := &MonitorState{
-		DiffHistory:         ring.New(historyLimit),
-		WeightedDiffHistory: ring.New(historyLimit),
-		heatmapQueue:        make(chan []byte, 1),
-		heatmapCancelFunc:   cancel,
-		DailySummaries:      make(map[string]DailySummary),
+		DiffHistory:       ring.New(historyLimit),
+		heatmapQueue:      make(chan []byte, 1),
+		heatmapCancelFunc: cancel,
+		DailySummaries:    make(map[string]DailySummary),
 	}
 	ms.startHeatmapWorker(ctx)
 	return ms
@@ -149,17 +129,6 @@ func (ms *MonitorState) UpdateData(data *MonitorData) {
 	ms.LatestData = data
 	ms.updateDailySummaryLocked(data)
 
-	// 基準ピクセル数の更新
-	if data.ChrysanthemumTotalPixels > 0 {
-		ms.ReferencePixels.Chrysanthemum = data.ChrysanthemumTotalPixels
-	}
-	if data.BackgroundTotalPixels > 0 {
-		ms.ReferencePixels.Background = data.BackgroundTotalPixels
-	}
-	if data.TotalPixels > 0 {
-		ms.ReferencePixels.Total = data.TotalPixels
-	}
-
 	// 差分履歴の追加（0%継続中は間引いて保存する）
 	if ms.shouldRecordHistoryLocked(data) {
 		ms.DiffHistory.Value = DiffRecord{
@@ -169,17 +138,6 @@ func (ms *MonitorState) UpdateData(data *MonitorData) {
 		ms.DiffHistory = ms.DiffHistory.Next()
 		if ms.DiffHistoryCount < historyLimit {
 			ms.DiffHistoryCount++
-		}
-
-		if data.WeightedDiffPercentage != nil {
-			ms.WeightedDiffHistory.Value = DiffRecord{
-				Timestamp:  data.Timestamp,
-				Percentage: *data.WeightedDiffPercentage,
-			}
-			ms.WeightedDiffHistory = ms.WeightedDiffHistory.Next()
-			if ms.WeightedHistoryCount < historyLimit {
-				ms.WeightedHistoryCount++
-			}
 		}
 	}
 
@@ -394,16 +352,11 @@ func (ms *MonitorState) GetTimelapseCompletedAt() *time.Time {
 }
 
 // GetDiffHistory 期間内の差分履歴を取得
-func (ms *MonitorState) GetDiffHistory(duration time.Duration, weighted bool) []DiffRecord {
+func (ms *MonitorState) GetDiffHistory(duration time.Duration) []DiffRecord {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
 
-	var src *ring.Ring
-	if weighted {
-		src = ms.WeightedDiffHistory
-	} else {
-		src = ms.DiffHistory
-	}
+	src := ms.DiffHistory
 
 	out := make([]DiffRecord, 0, src.Len())
 	cutoff := time.Now().Add(-duration)
@@ -541,9 +494,6 @@ func (ms *MonitorState) updateDailySummaryLocked(data *MonitorData) {
 
 	summary := ms.DailySummaries[dateKey]
 	summary.Overall = updateDailyMetric(summary.Overall, data.Timestamp, data.DiffPercentage)
-	if data.WeightedDiffPercentage != nil {
-		summary.Weighted = updateDailyMetric(summary.Weighted, data.Timestamp, *data.WeightedDiffPercentage)
-	}
 	ms.DailySummaries[dateKey] = summary
 
 	// Keep memory bounded: preserve only recent 7 JST days.

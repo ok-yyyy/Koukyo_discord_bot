@@ -279,15 +279,10 @@ func (n *Notifier) buildDailyDiffSummary(dateKey string, jst *time.Location) str
 		}, "\n")
 	}
 	overall := summary.Overall
-	weighted := summary.Weighted
 
 	avgOverall := 0.0
 	if overall.Count > 0 {
 		avgOverall = overall.Sum / float64(overall.Count)
-	}
-	avgWeighted := 0.0
-	if weighted.Count > 0 {
-		avgWeighted = weighted.Sum / float64(weighted.Count)
 	}
 
 	lines := []string{
@@ -296,14 +291,6 @@ func (n *Notifier) buildDailyDiffSummary(dateKey string, jst *time.Location) str
 		fmt.Sprintf("最小差分率: %s", formatPercent(overall.Min, overall.Count > 0)),
 		fmt.Sprintf("平均差分率: %s", formatPercent(avgOverall, overall.Count > 0)),
 		fmt.Sprintf("記録数: %d", overall.Count),
-	}
-	if weighted.Count > 0 {
-		lines = append(lines,
-			fmt.Sprintf("最新加重差分率: %s", formatPercent(weighted.Latest, true)),
-			fmt.Sprintf("最大加重差分率: %s %s", formatPercent(weighted.Max, true), formatTimeJST(weighted.PeakAt, true, jst)),
-			fmt.Sprintf("最小加重差分率: %s", formatPercent(weighted.Min, true)),
-			fmt.Sprintf("平均加重差分率: %s", formatPercent(avgWeighted, true)),
-		)
 	}
 	return strings.Join(lines, "\n")
 }

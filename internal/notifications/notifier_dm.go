@@ -10,8 +10,7 @@ import (
 )
 
 const (
-	dmDiffThreshold  = 10.0            // 加重差分率の通知閾値（%）
-	dmNotifyMetric   = "weighted"      // 常に加重差分率を使用
+	dmDiffThreshold  = 10.0            // 差分率の通知閾値（%）
 	dmNotifyCooldown = 3 * time.Minute // 連続通知を防ぐクールダウン
 )
 
@@ -32,7 +31,7 @@ func (n *Notifier) CheckAndNotifyDM() {
 		return
 	}
 
-	diffValue := getDiffValue(data, dmNotifyMetric)
+	diffValue := data.DiffPercentage
 	isZero := isZeroDiff(diffValue)
 	currentTier := calculateTier(diffValue, dmDiffThreshold)
 
@@ -66,13 +65,13 @@ func (n *Notifier) checkAndNotifyDMUser(userID string, _ *monitor.MonitorData, d
 	var msg string
 	switch {
 	case wasZero && !isZero:
-		msg = fmt.Sprintf("🔔 【Wplace速報 DM】変化検知 加重差分率: **%.2f%%**に上昇", diffValue)
+		msg = fmt.Sprintf("🔔 【Wplace速報 DM】変化検知 差分率: **%.2f%%**に上昇", diffValue)
 	case !wasZero && isZero:
-		msg = "✅ 【Wplace速報 DM】修復完了！ 加重差分率: **0.00%** # Pixel Perfect!"
+		msg = "✅ 【Wplace速報 DM】修復完了！ 差分率: **0.00%** # Pixel Perfect!"
 	case !isZero && currentTier > lastTier:
-		msg = fmt.Sprintf("🚨 【Wplace速報 DM】加重差分率が**%.2f%%**に増加しました！", diffValue)
+		msg = fmt.Sprintf("🚨 【Wplace速報 DM】差分率が**%.2f%%**に増加しました！", diffValue)
 	case !isZero && currentTier < lastTier:
-		msg = fmt.Sprintf("📉 【Wplace速報 DM】加重差分率が**%.2f%%**に減少しました。", diffValue)
+		msg = fmt.Sprintf("📉 【Wplace速報 DM】差分率が**%.2f%%**に減少しました。", diffValue)
 	}
 
 	if msg == "" {

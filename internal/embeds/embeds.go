@@ -21,12 +21,12 @@ func BuildInfoEmbed(botInfo *models.BotInfo) *discordgo.MessageEmbed {
 		Fields: []*discordgo.MessageEmbedField{
 			{
 				Name:   "📐 総ピクセル数",
-				Value:  "全体: 10,354\n菊: 2,968\n背景: 7,386",
+				Value:  "10,354",
 				Inline: false,
 			},
 			{
 				Name:   "📊 最新受信値",
-				Value:  "全体: 10,354 | 菊: 2,968 | 背景: 7,386",
+				Value:  "10,354",
 				Inline: false,
 			},
 		},
@@ -175,7 +175,7 @@ func BuildNowEmbed(mon *monitor.Monitor) *discordgo.MessageEmbed {
 					Inline: false,
 				},
 				{
-					Name:   "ℹ️ 接続状態",
+					Name:   "ℹ️ 取得状態",
 					Value:  getConnectionStatus(mon),
 					Inline: false,
 				},
@@ -215,22 +215,6 @@ func BuildNowEmbed(mon *monitor.Monitor) *discordgo.MessageEmbed {
 		diffValue = "✅ **0.00%** (Pixel Perfect!)"
 	}
 
-	// 加重差分率の表示
-	weightedDiffValue := "N/A"
-	if data.WeightedDiffPercentage != nil {
-		weightedDiffValue = fmt.Sprintf("%.2f%%", *data.WeightedDiffPercentage)
-		if *data.WeightedDiffPercentage == 0 {
-			weightedDiffValue = "✅ **0.00%**"
-		}
-	}
-
-	// ピクセル情報
-	detailPixelInfo := fmt.Sprintf("菊 %d / %d | 背景 %d / %d",
-		data.ChrysanthemumDiffPixels,
-		data.ChrysanthemumTotalPixels,
-		data.BackgroundDiffPixels,
-		data.BackgroundTotalPixels)
-
 	// 色の決定
 	color := 0x2ECC71 // Green
 	if data.DiffPercentage > 30 {
@@ -245,28 +229,13 @@ func BuildNowEmbed(mon *monitor.Monitor) *discordgo.MessageEmbed {
 		Color:       color,
 		Fields: []*discordgo.MessageEmbedField{
 			{
-				Name:   "📊 差分率 (全体)",
+				Name:   "📊 差分率",
 				Value:  diffValue,
 				Inline: false,
 			},
 			{
-				Name:   "📈 差分ピクセル (全体)",
+				Name:   "📈 差分ピクセル",
 				Value:  fmt.Sprintf("%d / %d", data.DiffPixels, data.TotalPixels),
-				Inline: false,
-			},
-			{
-				Name:   "🔍 加重差分率 (菊重視)",
-				Value:  weightedDiffValue,
-				Inline: false,
-			},
-			{
-				Name:   "🔍 差分ピクセル (菊/背景)",
-				Value:  detailPixelInfo,
-				Inline: false,
-			},
-			{
-				Name:   "📐 監視ピクセル数",
-				Value:  fmt.Sprintf("全体 %d | 菊 %d | 背景 %d", data.TotalPixels, data.ChrysanthemumTotalPixels, data.BackgroundTotalPixels),
 				Inline: false,
 			},
 		},
@@ -292,15 +261,15 @@ func appendMainMonitorMapField(embed *discordgo.MessageEmbed) {
 	})
 }
 
-// getConnectionStatus 接続状態を取得
+// getConnectionStatus タイル取得の状態を取得
 func getConnectionStatus(mon *monitor.Monitor) string {
 	if mon == nil {
 		return "⚠️ モニター未初期化"
 	}
-	if mon.IsConnected() {
-		return "✅ WebSocketサーバーに接続中"
+	if mon.IsHealthy() {
+		return "✅ Wplaceからタイルを取得中"
 	}
-	return "⚠️ 接続試行中..."
+	return "⚠️ タイル取得を再試行中..."
 }
 
 // BuildStatusEmbed status コマンド用の詳細ステータス埋め込みを作成
@@ -384,12 +353,6 @@ func BuildSettingsEmbed(settings *config.SettingsManager, guildID string) *disco
 		notifyStatus = "✅ ON"
 	}
 
-	// 通知指標のラベル
-	metricLabel := "全体差分率"
-	if guildSettings.NotificationMetric == "weighted" {
-		metricLabel = "加重差分率 (菊重視)"
-	}
-
 	// 通知チャンネル
 	channelText := "(未設定)"
 	if guildSettings.NotificationChannel != nil {
@@ -419,11 +382,6 @@ func BuildSettingsEmbed(settings *config.SettingsManager, guildID string) *disco
 			{
 				Name:   "通知チャンネル",
 				Value:  channelText,
-				Inline: true,
-			},
-			{
-				Name:   "通知指標",
-				Value:  fmt.Sprintf("**%s**", metricLabel),
 				Inline: true,
 			},
 			{

@@ -73,9 +73,6 @@ func TestSettingsManagerLoadsDefaultsForLegacySettings(t *testing.T) {
 	if got.MentionThreshold != DefaultGuildSettings.MentionThreshold {
 		t.Fatalf("unexpected mention threshold: %v", got.MentionThreshold)
 	}
-	if got.NotificationMetric != DefaultGuildSettings.NotificationMetric {
-		t.Fatalf("unexpected notification metric: %q", got.NotificationMetric)
-	}
 }
 
 func TestSettingsManagerLoadsUserDMWithoutSettingsFile(t *testing.T) {
