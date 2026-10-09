@@ -174,6 +174,19 @@ JSON 形式は共通です:
 - `data/template_img/` (監視用テンプレート画像)
   - `1818-806-989-358.png` (メイン監視のテンプレート。必須)
 
+## Region データベース
+
+`/get region:` と `/regionmap` が使うRegion一覧（512 x 512 = 262,144 件）は、
+`internal/commands/region_database.jsonl` としてバイナリに埋め込んでいます。
+
+1行が1RegionのJSON Lines形式で、`region_id` 順に並んでいます。
+
+```json
+{"region_id":103366,"name":"Tokyo#1","country_id":110,"city_id":1423,"region_coords":[454,201]}
+```
+
+タイル範囲と中心の緯度経度は `region_coords` から計算するため、ファイルには含めていません。
+
 ## 実績ルールJSON
 
 実績の付与条件は `data/achievement_rules.json` で定義できます。

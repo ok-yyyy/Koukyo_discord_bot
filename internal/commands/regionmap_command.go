@@ -218,7 +218,7 @@ func HandleRegionMapConfirm(s *discordgo.Session, i *discordgo.InteractionCreate
 		return
 	}
 	go func() {
-		db, err := loadRegionDBCached()
+		db, err := loadRegionDB()
 		if err != nil {
 			_ = followupMessage(s, i, "❌ Regionデータベースの読み込みに失敗しました")
 			return
@@ -238,7 +238,7 @@ func HandleRegionMapConfirm(s *discordgo.Session, i *discordgo.InteractionCreate
 }
 
 func buildRegionMapMessage(query string, page int, highlight string) (*discordgo.MessageEmbed, *discordgo.File, []discordgo.MessageComponent, error) {
-	db, err := loadRegionDBCached()
+	db, err := loadRegionDB()
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("Regionデータベースの読み込みに失敗しました")
 	}
