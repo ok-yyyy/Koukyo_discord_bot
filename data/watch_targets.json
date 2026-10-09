@@ -23,6 +23,18 @@
         "松代大本営",
         "松代"
       ]
+    },
+    {
+      "id": "akasaka",
+      "label": "赤坂御用地",
+      "template": "akasaka.png",
+      "origin": "1818-806-856-436",
+      "interval_seconds": 10,
+      "aliases": [
+        "akasaka",
+        "赤坂御用地",
+        "赤坂"
+      ]
     }
   ]
 }
