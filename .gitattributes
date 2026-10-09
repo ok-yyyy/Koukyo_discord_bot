@@ -1,0 +1,2 @@
+# 埋め込みデータは OS に関係なく同じ内容にする (改行を LF に固定)
+internal/commands/region_database.jsonl text eol=lf

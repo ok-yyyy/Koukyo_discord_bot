@@ -106,7 +106,7 @@ func (c *GetCommand) ExecuteSlash(s *discordgo.Session, i *discordgo.Interaction
 		if err := respondDeferred(s, i); err != nil {
 			return err
 		}
-		db, err := loadRegionDBCached()
+		db, err := loadRegionDB()
 		if err != nil {
 			return followupMessage(s, i, "Regionデータベースの読み込みに失敗しました。")
 		}
