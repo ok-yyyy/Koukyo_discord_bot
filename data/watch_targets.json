@@ -4,7 +4,7 @@
       "id": "kyoto",
       "label": "京都御所",
       "origin": "1796-811-318-5",
-      "template": "kyoto.webp",
+      "template": "kyoto.png",
       "interval_seconds": 10,
       "aliases": [
         "kyoto",
@@ -15,13 +15,25 @@
     {
       "id": "matsushiro",
       "label": "松代大本営",
-      "template": "matsushiro.webp",
+      "template": "matsushiro.png",
       "origin": "1810-800-150-333",
       "interval_seconds": 10,
       "aliases": [
         "matsushiro",
         "松代大本営",
         "松代"
+      ]
+    },
+    {
+      "id": "akasaka",
+      "label": "赤坂御用地",
+      "template": "akasaka.png",
+      "origin": "1818-806-856-436",
+      "interval_seconds": 10,
+      "aliases": [
+        "akasaka",
+        "赤坂御用地",
+        "赤坂"
       ]
     }
   ]
