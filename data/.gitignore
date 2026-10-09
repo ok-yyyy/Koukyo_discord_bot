@@ -1,0 +1,13 @@
+# data/ は実行時に生成されるファイルが大半なので、既定ですべて無視し、リポジトリで管理するものだけを下で許可する
+
+/*
+!/.gitignore
+
+# 設定
+!/achievement_rules.json
+!/easter_eggs.json
+!/get_shortcuts.json
+!/watch_targets.json
+
+# 監視用テンプレート画像
+!/template_img/
