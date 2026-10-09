@@ -625,6 +625,10 @@ func generateSimplifiedRegionMap(cityName string, regions map[string]Region, hig
 	maxTX := maxRX / scale
 	minTY := minRY / scale
 	maxTY := maxRY / scale
+	// 背景地図はタイル単位で取得するため、画像の左上はタイル境界にあるRegionになる。
+	// 枠もその位置を原点にして描かないと、地図とずれる。
+	originRX := minTX * scale
+	originRY := minTY * scale
 
 	tilesX := maxTX - minTX + 1
 	tilesY := maxTY - minTY + 1
@@ -659,7 +663,7 @@ func generateSimplifiedRegionMap(cityName string, regions map[string]Region, hig
 	}
 	overlay := getOverlayCached(overlayKey)
 	if overlay == nil {
-		overlay = buildSimplifiedOverlay(mapWidth, mapHeight, minRX, minRY, regions)
+		overlay = buildSimplifiedOverlay(mapWidth, mapHeight, originRX, originRY, regions)
 		storeOverlayCached(overlayKey, overlay)
 	}
 	draw.Draw(baseMap, baseMap.Bounds(), overlay, image.Point{}, draw.Over)
@@ -667,8 +671,8 @@ func generateSimplifiedRegionMap(cityName string, regions map[string]Region, hig
 	cellSize := regionMapTileSize / scale
 	for regionName, info := range regions {
 		rx, ry := info.RegionCoords[0], info.RegionCoords[1]
-		col := rx - minRX
-		row := ry - minRY
+		col := rx - originRX
+		row := ry - originRY
 		x1 := col * cellSize
 		y1 := row * cellSize
 		x2 := x1 + cellSize
@@ -872,13 +876,14 @@ func buildBaseMap(mapWidth, mapHeight, minTX, maxTX, minTY, maxTY, zoom int) *im
 	return baseMap
 }
 
-func buildSimplifiedOverlay(mapWidth, mapHeight, minRX, minRY int, regions map[string]Region) *image.NRGBA {
+// buildSimplifiedOverlay は各Regionの枠と番号を描く。originRX/originRY は画像の左上にあたるRegion座標。
+func buildSimplifiedOverlay(mapWidth, mapHeight, originRX, originRY int, regions map[string]Region) *image.NRGBA {
 	overlay := image.NewNRGBA(image.Rect(0, 0, mapWidth, mapHeight))
 	cellSize := regionMapTileSize / 4
 	for regionName, info := range regions {
 		rx, ry := info.RegionCoords[0], info.RegionCoords[1]
-		col := rx - minRX
-		row := ry - minRY
+		col := rx - originRX
+		row := ry - originRY
 		x1 := col * cellSize
 		y1 := row * cellSize
 		x2 := x1 + cellSize
