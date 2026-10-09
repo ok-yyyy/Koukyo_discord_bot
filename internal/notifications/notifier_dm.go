@@ -103,9 +103,3 @@ func (n *Notifier) sendDMNotification(userID, content string) {
 		log.Printf("DM notification: failed to send DM to user %s: %v", userID, err)
 	}
 }
-
-// NotifyPaintRecovery Paintが全回復したことをユーザーにDMで通知します
-func (n *Notifier) NotifyPaintRecovery(userID string, max int) {
-	msg := fmt.Sprintf("🖌️ **Paint全回復通知**\nPaintが上限 (**%d**) まで回復しました！", max)
-	n.sendDMNotification(userID, msg)
-}

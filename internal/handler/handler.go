@@ -33,11 +33,8 @@ func NewHandler(prefix string, botInfo *models.BotInfo, mon *monitor.Monitor, se
 	var commandsList []commands.Command
 	commandsList = append(commandsList,
 		&commands.PingCommand{},
-		commands.NewInfoCommand(botInfo),
-		commands.NewExplanationCommand(),
 		commands.NewStatusCommand(botInfo, notifier),
 		commands.NewNowCommand(mon),
-		commands.NewTimeCommand(),
 		commands.NewConvertCommand(),
 		commands.NewMeCommand(dataDir, activityLimiter),
 		commands.NewAchievementsCommand(dataDir),
@@ -47,7 +44,6 @@ func NewHandler(prefix string, botInfo *models.BotInfo, mon *monitor.Monitor, se
 		commands.NewAchievementChannelCommand(settingsManager),
 		commands.NewDMCommand(settingsManager),
 		commands.NewGetCommand(limiter), // limiter を渡すように変更
-		commands.NewPaintCommand(notifier),
 		commands.NewRegionMapCommand(),
 		commands.NewUserActivityCommand(dataDir),
 		commands.NewFixUserCommand(dataDir),
@@ -56,7 +52,6 @@ func NewHandler(prefix string, botInfo *models.BotInfo, mon *monitor.Monitor, se
 	if mon != nil {
 		commandsList = append(commandsList,
 			commands.NewGraphCommand(mon, dataDir),
-			commands.NewPredictCommand(mon),
 			commands.NewTimelapseCommand(mon),
 			commands.NewHeatmapCommand(mon),
 		)

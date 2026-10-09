@@ -108,12 +108,6 @@ func (h *Handler) handleMessageComponent(s *discordgo.Session, i *discordgo.Inte
 				commands.HandleRegionMapConfirm(s, i, h.limiter)
 			},
 		},
-		{
-			match: func(id string) bool { return strings.HasPrefix(id, "explanation_page:") },
-			handle: func() {
-				commands.HandleExplanationPagination(s, i)
-			},
-		},
 	}
 
 	for _, handler := range componentHandlers {

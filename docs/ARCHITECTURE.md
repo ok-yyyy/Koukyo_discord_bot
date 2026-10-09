@@ -95,13 +95,6 @@ cmd/bot/main.go
 - 送信: `session.UserChannelCreate` で DM チャンネルを開き `ChannelMessageSend`
 - 差分率の 10% 閾値を使用
 
-### Paint回復通知（手動予約）
-
-- `/paint set` によるユーザー指定のタイマー通知
-- `internal/commands/paint.go` が `map[string]*time.Timer` でユーザーごとに 1 つの通知を管理
-- 指定時間経過後に `Notifier.NotifyPaintRecovery` を呼び出し、DM を送信
-- メモリ上でのみ管理（Bot 再起動で予約はリセットされる）
-
 ### 追加監視/進捗監視のエラーポリシー
 
 - 取得失敗、テンプレ解決失敗、比較失敗は Discord 送信しない
